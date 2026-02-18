@@ -3,7 +3,7 @@
 **Version**: 2.0  
 **Created**: February 18, 2026  
 **Updated**: February 18, 2026  
-**Owner**: Telemetry Analysis Team  
+**Owner**: Patricio Ortiz - Data Team
 **Project Goal**: Automated equipment health monitoring through sensor data analysis
 
 ---
@@ -110,7 +110,7 @@ These methods forFor **trending analysis** when patterns evolve over time
 
 ---
 
-### **Method 4: Percentile-Based Baseline**
+#### **Method 1: Percentile-Based Baseline**
 
 **Description**: Establish "normal" behavior using historical percentiles (e.g., 5th-95th percentile range).
 
@@ -118,7 +118,7 @@ These methods forFor **trending analysis** when patterns evolve over time
 - Build baseline from past weeks: P5, P50 (median), P95
 - Grade current reading:
   - Normal: Between P5 and P95
-  - Alerta: Between [P1-P5] or [P95-P99]
+  - Alerta: Between [P2-P5] or [P95-P98]
   - Anormal: Below P1 or above P99
 
 **Pros**:
@@ -130,11 +130,9 @@ These methods forFor **trending analysis** when patterns evolve over time
 - ❌ Static baseline doesn't adapt quickly
 - ❌ Requires representative historical data
 
-**When to use**: For **week-over-week comparisons** (your initial boxplot idea!)
-
 ---
 
-### **Method 5: State-Conditioned Analysis**
+#### **Method 2: State-Conditioned Analysis**
 
 **Description**: Evaluate sensors differently based on operational state (Operacional, Ralenti, Cargado, Descargado).
 
@@ -154,81 +152,6 @@ These methods forFor **trending analysis** when patterns evolve over time
 
 **When to use**: **Essential** for meaningful analysis (combine with other methods)
 
----
-
-### **Method 6: Rate of Change Detection**
-
-**Description**: Flag rapid changes in sensor values that indicate sudden degradation or failure.
-
-**How it works**:
-- Calculate first derivative: `Δvalue / Δtime`
-- Flag if rate of change exceeds normal variation
-- Example: Sudden 20°C jump in coolant temp over 5 minutes
-
-**Pros**:
-- ✅ Detects early signs of failure
-- ✅ Catches transient events missed by static analysis
-- ✅ Lightweight calculation
-
-**Cons**:
-- ❌ Sensitive to noise (requires smoothing)
-- ❌ May miss gradual degradation
-
-**When to use**: For **early warning** of acute failures (combine with baseline methods)
-
----
-
-### **Method 7: Multivariate Correlation Analysis**
-
-**Description**: Detect anomalies by identifying when sensor correlations deviate from normal patterns.
-
-**How it works**:
-- Build correlation matrix for component signals (e.g., Motor sensors)
-- Compare current correlations against baseline
-- Flag when correlations break (e.g., EngCoolTemp rises but EngOilPres doesn't)
-
-**Pros**:
-- ✅ Captures complex interdependencies
-- ✅ Detects subtle failures
-- ✅ Holistic component view
-
-**Cons**:
-- ❌ y this is the primary method**: 
-- ✅ Aligns perfectly with the boxplot visualization strategy
-- ✅ Simple to implement and explain
-- ✅ Adapts to equipment-specific behavior
-- ✅ Works well with pre-processed 5-minute window data
-
----
-
-#### **Method 2: State-Conditioned Analysis** 🔥 CRITICAL ENHANCEMENT
----
-
-### **Method 8: Isolation Forest (Unsupervised ML)**
-
-**Description**: Use lightweight machine learning to identify multivariate outliers without labels.
-
-**How it works**:
-- Train Isolation Forest on historical "normal" data
-- Score new readings: anomaly score between 0-1
-- Flag high anomaly scores as Alerta/Anormal
-
-**Pros**:
-- ✅ Handles high-dimensional data well
-- ✅ No manual threshold tuning
-- ✅ Captures complex patterns
-
-**Cons**:
-- ❌ Requires training data (past weeks)
-- ❌ Less interpretable ("black box")
-- ❌ y this is critical**: 
-- ✅ **Must-have** for accurate results
-- ✅ Prevents false positives (e.g., high RPM during loaded operation is normal)
-- ✅ Aligns with physical equipment behavior
-
-**Implementation**: Apply Method 1 separately for each operational state combination
-
----
 
 ### **Medium-Term Methods (Enhancements)**
 

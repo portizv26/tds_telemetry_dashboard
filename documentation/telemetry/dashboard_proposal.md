@@ -2,7 +2,7 @@
 
 **Version**: 1.0  
 **Created**: February 18, 2026  
-**Owner**: Telemetry Analysis Team  
+**Owner**: Patricio Ortiz - Data Team
 **Purpose**: Define dashboard layout and visualizations for telemetry monitoring
 
 ---

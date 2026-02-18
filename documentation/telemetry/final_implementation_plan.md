@@ -2,7 +2,7 @@
 
 **Version**: 2.0  
 **Created**: February 18, 2026  
-**Owner**: Telemetry Analysis Team  
+**Owner**: Patricio Ortiz - Data Team
 **Purpose**: Complete roadmap from MVP to advanced AI-powered system
 
 ---
