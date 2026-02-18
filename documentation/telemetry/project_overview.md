@@ -1,7 +1,8 @@
 # Telemetry Analysis Project - Overview
 
-**Version**: 1.0  
+**Version**: 2.0  
 **Created**: February 18, 2026  
+**Updated**: February 18, 2026  
 **Owner**: Telemetry Analysis Team  
 **Project Goal**: Automated equipment health monitoring through sensor data analysis
 
@@ -12,9 +13,9 @@
 1. [Project Goal](#project-goal)
 2. [Problem Statement](#problem-statement)
 3. [Approach Overview](#approach-overview)
-4. [Analysis Methods Pool](#analysis-methods-pool)
-5. [Method Evaluation Matrix](#method-evaluation-matrix)
-6. [Recommended Prioritization](#recommended-prioritization)
+4. [Approved Analysis Methods](#approved-analysis-methods)
+5. [Implementation Roadmap](#implementation-roadmap)
+6. [Success Metrics](#success-metrics)
 
 ---
 
@@ -57,6 +58,7 @@ Detect **problematic behavior** in mining equipment sensors without:
 - **Multi-state**: Equipment operates in different states (Operational, Idle, Loaded, Unloaded)
 - **Multi-dimensional**: 19 sensor signals across 4 components
 - **Spatial context**: GPS coordinates available
+- **Pre-processed**: Data comes pre-processed and aggregated with 5-minute moving window trends
 
 ---
 
@@ -81,7 +83,7 @@ Detect **problematic behavior** in mining equipment sensors without:
 
 ### Grading Logic Flow
 ```
-1. Read weekly parquet file
+1. Read weekly parquet file (pre-processed with 5-min moving window)
 2. For each signal in each component:
    → Apply detection method(s)
    → Assign signal grade
@@ -96,78 +98,15 @@ Detect **problematic behavior** in mining equipment sensors without:
 
 ---
 
-## 💡 Analysis Methods Pool
+## ✅ Approved Analysis Methods
 
-Below are **10 methods** for detecting problematic behavior in sensor data, ranging from simple statistical approaches to more sophisticated techniques.
-
----
-
-### **Method 1: Static Threshold Detection**
-
-**Description**: Define fixed upper and lower limits for each sensor. Flag values exceeding thresholds.
-
-**How it works**:
-- Set domain-expert thresholds (e.g., EngCoolTemp > 95°C = Anormal)
-- Compare each reading against limits
-- Grade: Normal (within), Alerta (near limit), Anormal (exceeded)
-
-**Pros**:
-- ✅ Extremely simple to implement
-- ✅ Fast execution
-- ✅ Easy to explain to operators
-
-**Cons**:
-- ❌ Requires domain knowledge for threshold selection
-- ❌ Doesn't adapt to equipment-specific baselines
-- ❌ Ignores temporal patterns
-
-**When to use**: As a **baseline** or when manufacturer specs are available
+The following methods have been approved for implementation in this project, organized by implementation phase.
 
 ---
 
-### **Method 2: Statistical Outlier Detection (IQR Method)**
+### **Short-Term Methods (MVP)**
 
-**Description**: Use Interquartile Range (IQR) to identify outliers statistically without predefined thresholds.
-
-**How it works**:
-- Calculate Q1 (25th percentile) and Q3 (75th percentile) for each signal
-- IQR = Q3 - Q1
-- Flag values: 
-  - Alerta: Outside `[Q1 - 1.5*IQR, Q3 + 1.5*IQR]`
-  - Anormal: Outside `[Q1 - 3*IQR, Q3 + 3*IQR]`
-
-**Pros**:
-- ✅ No manual threshold setting
-- ✅ Adapts to data distribution
-- ✅ Robust to extreme values
-
-**Cons**:
-- ❌ Assumes normal-ish distribution
-- ❌ Doesn't consider temporal dependencies
-
-**When to use**: When you lack domain thresholds but have historical data
-
----
-
-### **Method 3: Rolling Window Statistics**
-
-**Description**: Compare current readings against recent historical behavior using rolling averages and standard deviations.
-
-**How it works**:
-- Calculate rolling mean (μ) and std (σ) over last N hours/days
-- Flag current value if: `|value - μ| > k*σ` where k=2 (Alerta) or k=3 (Anormal)
-- Adapts dynamically to recent trends
-
-**Pros**:
-- ✅ Captures temporal context
-- ✅ Adapts to seasonal patterns
-- ✅ Lightweight computation
-
-**Cons**:
-- ❌ Requires sufficient history
-- ❌ Lag in detecting sudden shifts
-
-**When to use**: For **trending analysis** when patterns evolve over time
+These methods forFor **trending analysis** when patterns evolve over time
 
 ---
 
@@ -254,11 +193,15 @@ Below are **10 methods** for detecting problematic behavior in sensor data, rang
 - ✅ Holistic component view
 
 **Cons**:
-- ❌ More computationally intensive
-- ❌ Harder to explain to operators
+- ❌ y this is the primary method**: 
+- ✅ Aligns perfectly with the boxplot visualization strategy
+- ✅ Simple to implement and explain
+- ✅ Adapts to equipment-specific behavior
+- ✅ Works well with pre-processed 5-minute window data
 
-**When to use**: For **component-level analysis** when signals should move together
+---
 
+#### **Method 2: State-Conditioned Analysis** 🔥 CRITICAL ENHANCEMENT
 ---
 
 ### **Method 8: Isolation Forest (Unsupervised ML)**
@@ -278,207 +221,199 @@ Below are **10 methods** for detecting problematic behavior in sensor data, rang
 **Cons**:
 - ❌ Requires training data (past weeks)
 - ❌ Less interpretable ("black box")
-- ❌ More computational overhead
+- ❌ y this is critical**: 
+- ✅ **Must-have** for accurate results
+- ✅ Prevents false positives (e.g., high RPM during loaded operation is normal)
+- ✅ Aligns with physical equipment behavior
 
-**When to use**: When **simple methods fail** to catch known issues in testing
-
----
-
-### **Method 9: Time Series Anomaly Detection (Z-score with Trend Removal)**
-
-**Description**: Decompose time series into trend + seasonal + residual, then flag anomalies in residuals.
-
-**How it works**:
-- Apply seasonal decomposition (e.g., weekly patterns)
-- Calculate z-scores on residuals
-- Flag large z-score deviations
-
-**Pros**:
-- ✅ Handles seasonality elegantly
-- ✅ Removes long-term drift
-- ✅ Standard statistical method
-
-**Cons**:
-- ❌ Requires sufficient history (several weeks)
-- ❌ More complex than basic methods
-
-**When to use**: For **sensors with known daily/weekly cycles**
+**Implementation**: Apply Method 1 separately for each operational state combination
 
 ---
 
-### **Method 10: Clustered Baseline Profiles**
+### **Medium-Term Methods (Enhancements)**
 
-**Description**: Group similar operating periods, then flag when current behavior doesn't match any cluster.
-
-**How it works**:
-- Use K-Means or DBSCAN to cluster historical operating profiles
-- Assign each new reading to nearest cluster
-- Flag if distance to nearest cluster is large
-
-**Pros**:
-- ✅ Identifies "never seen before" patterns
-- ✅ Adapts to multiple normal modes
-- ✅ Good for equipment with varying usage
-
-**Cons**:
-- ❌ Requires tuning (number of clusters)
-- ❌ More complex implementation
-- ❌ Higher computational cost
-
-**When to use**: For **diverse operational patterns** (e.g., multiple routes/loads)
+These methods enhance the MVP with advanced detection capabilities.
 
 ---
 
-## 📊 Method Evaluation Matrix
-
-Each method is evaluated on two axes:
-- **Complexity** (1-5): 1 = Very Simple, 5 = Very Complex
-- **Precision** (1-5): 1 = Low Accuracy, 5 = High Accuracy
-
-| # | Method | Complexity | Precision | Complexity × Precision | Notes |
-|---|--------|-----------|-----------|----------------------|-------|
-| 1 | Static Threshold Detection | 1 | 2 | 2 | Best for MVP baseline |
-| 2 | Statistical Outlier (IQR) | 1 | 3 | 3 | Easy wins without thresholds |
-| 3 | Rolling Window Statistics | 2 | 3 | 6 | Good temporal awareness |
-| 4 | Percentile-Based Baseline | 1 | 3 | 3 | **Perfect for week-over-week viz** |
-| 5 | State-Conditioned Analysis | 2 | 4 | 8 | **Essential enhancement** |
-| 6 | Rate of Change Detection | 2 | 3 | 6 | Catches acute failures |
-| 7 | Multivariate Correlation | 3 | 4 | 12 | Component-level upgrade |
-| 8 | Isolation Forest | 3 | 4 | 12 | ML fallback if needed |
-| 9 | Time Series Decomposition | 3 | 4 | 12 | For seasonal patterns |
-| 10 | Clustered Baseline Profiles | 4 | 4 | 16 | Advanced option |
-
-### Evaluation Criteria
-
-**Complexity** considers:
-- Implementation effort (code complexity)
-- Computational resources (runtime)
-- Maintenance burden (tuning, updates)
-
-**Precision** considers:
-- Ability to detect true failures
-- False positive rate
-- Adaptability to equipment variations
-
----
-
-## 🎯 Recommended Prioritization
-
-### **Phase 1: MVP (Simple & Effective)**
-**Goal**: Deliver working system quickly with "good enough" accuracy
-
-1. **Method 4: Percentile-Based Baseline** ⭐ **START HERE**
-   - Complexity: 1, Precision: 3
-   - Why: Aligns with your boxplot idea, easy to implement/visualize
-   - Implementation: Build weekly percentile baselines (P5, P25, P50, P75, P95, P99)
-
-2. **Method 5: State-Conditioned Analysis** 🔥 **CRITICAL**
-   - Complexity: 2, Precision: 4
-   - Why: **Must-have** for accurate results
-   - Implementation: Apply Method 4 separately per operational state
-
-3. **Method 2: IQR Outlier Detection**
-   - Complexity: 1, Precision: 3
-   - Why: Backup for sensors without good baselines
-   - Implementation: Fallback when insufficient history
-
-**MVP Outcome**: Signal → Component → Machine grading working with state-aware percentile baselines
-
----
-
-### **Phase 2: Enhancements (Moderate Complexity)**
-**Goal**: Improve precision with temporal awareness
-
-4. **Method 6: Rate of Change Detection**
-   - Adds early warning for acute failures
-   - Complements static baseline methods
-
-5. **Method 3: Rolling Window Statistics**
-   - Adapts to gradual trends
-   - Smooths day-to-day variations
-
-**Phase 2 Outcome**: Catches both gradual degradation and sudden failures
-
----
-
-### **Phase 3: Advanced (Higher Complexity)**
-**Goal**: Maximize precision with sophisticated techniques
-
-6. **Method 7: Multivariate Correlation Analysis**
-   - Component-level intelligence
-   - Detects subtle interaction failures
-
-7. **Method 8: Isolation Forest (Optional)**
-   - Only if simpler methods miss known issues
-   - Requires careful validation
-
-**Phase 3 Outcome**: Near-expert-level diagnostic capability
-
----
-
-## 📐 Scoring Strategy
-
-### Signal-Level Scoring
-```python
-# Example: Percentile-based grading
-if value < P1 or value > P99:
-    grade = "Anormal"
-    score = 10
-elif value < P5 or value > P95:
-    grade = "Alerta"
-    score = 5
-else:
-    grade = "Normal"
-    score = 0
-```
-
-### Component-Level Aggregation
-```python
-# Aggregate signal scores
-component_score = sum(signal_scores)
-component_grade = {
-    "Normal": all signals Normal or max 1 Alerta,
-    "Alerta": 2+ signals Alerta or 1 Anormal,
-    "Anormal": 2+ signals Anormal
-}
-```
-
-### Machine-Level Aggregation
-```python
-# Aggregate component scores
-machine_score = sum(component_scores)
-priority_score = weighted_sum(component_scores)  # Weight critical components higher
-machine_grade = {
-    "Normal": all components Normal,
-    "Alerta": 1+ components Alerta,
-    "Anormal": 1+ components Anormal
-}
-```
-
----
-
-## 🚀 Success Metrics
-
-### Technical Metrics
-- ✅ False Positive Rate < 10%
-- ✅ Processing time < 5 minutes per week's data
-- ✅ Grade changes correlate with maintenance events
-
-### Business Metrics
-- ✅ Early detection: Flag issues 24-48h before operator notice
-- ✅ Maintenance optimization: Reduce reactive repairs by 30%
-- ✅ Downtime prevention: Catch critical failures proactively
-
----
-
-## 📚 Next Steps
-
-1. ✅ **Read this document** → Understand approach
-2. 📊 **Review dashboard_proposal.md** → Visualization strategy
-3. 🛠️ **Follow implementation_plan.md** → Build MVP
-4. 🚀 **Execute improvement_plan.md** → Enhance precision
-
+#### **Method 3: Autoencoder Neural Network (ANN)** 🚀 ADVANCED DETECTION
 ---
 
 **Document Status**: ✅ Ready for Review  
 **Recommended Starting Point**: Method 4 (Percentile Baseline) + Method 5 (State Conditioning)
+**Description**: Use encoder-decoder neural network architecture to learn normal signal patterns and detect anomalies through reconstruction error.
+
+**How it works**:
+- **Training Phase**: 
+  - Train autoencoder on historical "normal" data
+  - Network learns to compress (encode) and reconstruct (decode) normal patterns
+  - Normal data has low reconstruction error
+- **Detection Phase**:
+  - Pass new signals through trained autoencoder
+  - Calculate reconstruction error
+  - High reconstruction error = Anomaly (signal doesn't match learned patterns)
+
+**Architecture**:
+```
+Input Layer (19 signals) 
+    ↓
+Encoder (Dense layers: 19 → 12 → 8 → 4)
+    ↓
+Latent Space (4 dimensions)
+    ↓
+Decoder (Dense layers: 4 → 8 → 12 → 19)
+    ↓
+Reconstructed Output (19 signals)
+    
+Reconstruction Error = MSE(Input, Output)
+```
+
+**Advantages**:
+- ✅ **Captures complex patterns**: Learns non-linear relationships between signals
+- ✅ **Unsupervised**: No labeled failure data needed
+- ✅ **Component-aware**: Can train separate autoencoders per component
+- ✅ **Multivariate**: Considers all signals simultaneously
+- ✅ **Adaptive**: Can retrain periodically with new data
+
+**Implementation Details**:
+- State-conditioned: Train separate autoencoders per operational state
+- Use last 4-8 weeks of "Normal" graded data for training
+- Reconstruction error threshold: P95 of training errors = Alerta, P99 = Anormal
+
+**Why encoder-decoder approach**:
+- ✅ More sophisticated than Isolation Forest
+- ✅ Learns temporal and cross-signal patterns
+- ✅ Interpretable through reconstruction error per signal
+- ✅ Can identify which signals contribute most to anomaly
+
+---
+
+#### **Method 4: Time Series Forecasting** 📈 PREDICTIVE CAPABILITY
+
+**Description**: Predict future sensor behavior to enable proactive maintenance.
+
+**How it works**:
+- Use Prophet, ARIMA, or LSTM to forecast sensor trajectories
+- Project signal values 24-72 hours into future
+- Identify when forecasted values will exceed thresholds
+- Enable "Time to Failure" predictions
+
+**Use Cases**:
+- "Motor coolant temp projected to reach critical level in 48 hours"
+- "Brake temperature trending upward, intervention recommended within 3 days"
+- Schedule maintenance before failure occurs
+
+**Implementation**:
+- Per-signal forecasting with confidence intervals
+- State-aware: Different forecasts for different operational states
+- Update forecasts daily with new data
+
+**Advantages**:
+- ✅ **Proactive**: Predict failures before they occur
+- ✅ **Maintenance scheduling**: Optimize intervention timing
+- ✅ **Cost savings**: Prevent emergency repairs
+
+---
+
+#### **Method 5: Operational Clustering** 🎯 BEHAVIORAL ANALYSIS
+
+**Description**: Automatically identify operational modes and measure deviation from expected behavior.
+
+**How it works**:
+- **Clustering Phase**:
+  - Use K-Means or DBSCAN on historical data
+  - Identify distinct operational profiles (e.g., loaded uphill, unloaded flat terrain)
+  - Each cluster represents a "normal" operating mode
+- **Deviation Detection**:
+  - For new data, find nearest cluster
+  - Measure distance to cluster center
+  - Large distance = Operating outside expected parameters
+
+**Use Cases**:
+- "Unit is operating 2.5σ away from typical loaded operation profile"
+- "Current behavior doesn't match any known operational mode"
+- Identify unusual usage patterns that may indicate operator issues
+
+**Advantages**:
+- ✅ **Discovers hidden patterns**: May find modes beyond manual Estado labels
+- ✅ **Holistic view**: Considers all signals + GPS + states together
+- ✅ **Contextual anomalies**: Detects "right signals, wrong combination"
+
+---
+
+## 🗺️ Implementation Roadmap
+
+### **Short-Term (MVP) - 3-4 weeks**
+
+**Methods**: Percentile-Based Baseline + State-Conditioned Analysis
+
+**Deliverables**:
+- Signal → Component → Machine grading
+- machine_status.parquet
+- classified.parquet (without AI recommendations)
+- Dashboard (3 tabs) with boxplot visualizations
+
+**Goal**: Functional system with "good enough" accuracy
+
+---
+
+### **Medium-Term (Enhancements) - 12-16 weeks**
+
+#### **Phase 1: AI Integration** (2-3 weeks)
+- Add AI-generated recommendations to classified.parquet
+- LLM integration for human-readable insights
+- Enhanced dashboard with AI insights display
+
+#### **Phase 2: Enhanced Detection** (4-6 weeks)
+- Implement Autoencoder Neural Network (encoder-decoder)
+- Train per-component, per-state models
+- Integrate reconstruction error grading with percentile baseline
+- Ensemble approach: Combine statistical + ML methods
+
+#### **Phase 3: New Features** (4-6 weeks)
+- **Time Series Forecasting**: 
+  - Implement LSTM or Prophet models
+  - Generate 24-72h predictions
+  - Add "Time to Failure" metrics
+  - Dashboard: Forecast visualization tab
+- **Operational Clustering**:
+  - Train clustering models on historical data
+  - Calculate deviation metrics
+  - Dashboard: Cluster membership and deviation cards
+
+**Goal**: Advanced AI-powered diagnostic and predictive system
+
+---
+
+🎯 Success Metrics
+
+### Short-Term (MVP)
+- ✅ False Positive Rate < 15%
+- ✅ Processing time < 5 minutes per week's data
+- ✅ Grade changes correlate with maintenance events
+- ✅ Dashboard functional with all visualizations
+
+### Medium-Term (Enhancements)
+- ✅ **AI Recommendations**: 80%+ user satisfaction
+- ✅ **Autoencoder Detection**: False positive rate < 10%
+- ✅ **Forecasting**: 70%+ accuracy for 48h predictions
+- ✅ **Clustering**: Identify 3-5 meaningful operational modes
+
+### Business Impact
+- ✅ Early detection: Flag issues 24-48h before operator notice
+- ✅ Maintenance optimization: Reduce reactive repairs by 30%
+- ✅ Downtime prevention: Catch critical failures proactively
+- ✅ Cost savings: $X per unit per year (to be measured)
+
+---
+
+## 📚 Related Documentation
+
+- **[Data Contracts](data_contracts.md)**: Input/output schemas and data structures
+- **[Dashboard Proposal](dashboard_proposal.md)**: Visualization strategy and layout
+- **[Final Implementation Plan](final_implementation_plan.md)**: Complete build and enhancement roadmap
+
+---
+
+**Document Status**: ✅ Approved (Version 2.0)  
+**Implementation Priority**: Short-term MVP → AI Integration → Enhanced Detection → New Features
