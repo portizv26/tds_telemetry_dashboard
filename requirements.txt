@@ -1,0 +1,10 @@
+# requirements.txt
+
+# Minimal requirements for data processing, AWS, OpenAI, Plotly, and Jupyter
+boto3==1.42.40
+openai==2.16.0
+pandas==3.0.0
+pyarrow==23.0.0
+openpyxl==3.1.5
+plotly==6.5.2
+jupyter==1.1.1
