@@ -1,720 +1,797 @@
-# Telemetry Dashboard - Visualization Proposal
+# Telemetry Dashboard - Proposal
 
-**Version**: 1.0  
-**Created**: February 18, 2026  
-**Owner**: Patricio Ortiz - Data Team
-**Purpose**: Define dashboard layout and visualizations for telemetry monitoring
+**Version**: 1.0.0  
+**Last Updated**: February 23, 2026  
+**Component**: Telemetry Dashboard Design
 
 ---
 
 ## 📋 Table of Contents
 
-1. [Dashboard Context](#dashboard-context)
-2. [User Needs & Use Cases](#user-needs--use-cases)
-3. [Data Update Frequency](#data-update-frequency)
-4. [Dashboard Structure](#dashboard-structure)
-5. [Visualization Catalog](#visualization-catalog)
-6. [Layout Specifications](#layout-specifications)
-7. [Interactive Features](#interactive-features)
-8. [Evidence-Based Design](#evidence-based-design)
+1. [Dashboard Story](#dashboard-story)
+2. [User Journey](#user-journey)
+3. [Dashboard Layout](#dashboard-layout)
+4. [Visualization Specifications](#visualization-specifications)
+5. [Interaction Patterns](#interaction-patterns)
+6. [Technical Implementation Notes](#technical-implementation-notes)
 
 ---
 
-## 🎯 Dashboard Context
+## 📖 Dashboard Story
 
-### Integration into Multi-Technical Platform
+The telemetry dashboard tells a **hierarchical diagnostic story** that guides users from fleet-wide awareness to component-level root cause analysis:
 
-The Telemetry section fits into the broader **Monitoring Section** of the Multi-Technical Alerts Dashboard:
+### The Narrative Arc
 
 ```
-Dashboard
-├── Overview Section
-│   └── General (Fleet summary across all techniques)
-├── Monitoring Section
-│   ├── Alerts (Consolidated alerts) ← Already planned
-│   ├── Telemetry ← THIS DASHBOARD
-│   ├── Mantentions (Maintenance records)
-│   └── Oil (Tribology analysis)
-└── Limits Section
-    ├── Oil Limits
-    └── Telemetry Limits
+1. "What is the current health of my fleet?"
+   → Fleet Overview: See all units and their status at a glance
+
+2. "Which machines need attention?"
+   → Machine Ranking: Sort by priority to focus on worst performers
+
+3. "What's wrong with this machine?"
+   → Component Health: Identify which systems are problematic
+
+4. "Why is this component flagged?"
+   → Signal Analysis: See which sensors are out of range
+
+5. "Is this really abnormal?"
+   → Evidence Validation: Compare current readings to historical baselines
 ```
 
-### Telemetry-Specific Objectives
+### Key Questions Answered
 
-1. **Show current machine health** based on latest sensor analysis
-2. **Provide evidence** when equipment is flagged as problematic
-3. **Enable temporal analysis** to understand degradation patterns
-4. **Support drill-down** from machine → component → signal level
-5. **Contextualize with operational states** (Operational, Idle, Loaded, etc.)
-
----
-
-## 👥 User Needs & Use Cases
-
-### Primary Users
-
-1. **Maintenance Supervisors**
-   - Need: Quick overview of which units require attention
-   - Goal: Prioritize maintenance activities
-
-2. **Fleet Managers**
-   - Need: Understand fleet-wide health trends
-   - Goal: Optimize equipment utilization
-
-3. **Field Technicians**
-   - Need: Detailed diagnostic evidence for specific units
-   - Goal: Identify root cause before intervention
-
-### Key Use Cases
-
-#### **Use Case 1: Daily Health Check**
-> "Every morning, I need to see which trucks have telemetry alerts so I can schedule inspections."
-
-**Solution**: Machine Status Table with severity sorting
+| User Question | Dashboard Answer | Data Source |
+|---------------|------------------|-------------|
+| How many machines are in trouble? | KPI cards: X Anormal, Y Alerta | `machine_status.parquet` |
+| Which machine is the highest priority? | Sorted table by `priority_score` | `machine_status.parquet` |
+| What components are affected? | Component status table with drill-down | `component_details` (nested) |
+| Which sensors triggered the alert? | Signal evaluation table | `classified.parquet` → `signals_evaluation` |
+| How far from normal are the readings? | Boxplot: observed vs. baseline percentiles | Silver layer + baselines |
+| Is this a recent issue or ongoing? | Time series over evaluation window | Silver layer (week partition) |
 
 ---
 
-#### **Use Case 2: Diagnostic Investigation**
-> "Unit 247 is flagged as 'Anormal'. What sensors are causing this? Show me the evidence."
+## 👤 User Journey
 
-**Solution**: Component drill-down with signal trend visualization
+### Persona: Maintenance Engineer
+
+**Goal**: Identify and prioritize maintenance interventions for the fleet
+
+**Typical Workflow**:
+
+1. **Monday Morning: Fleet Check**
+   - Open dashboard → Fleet Overview tab
+   - Scan KPI cards for new alerts since last week
+   - Notice CAT797-001 now shows "Anormal" status
+
+2. **Priority Assessment**
+   - Sort machine table by priority_score (descending)
+   - CAT797-001 ranks #2 → high priority
+   - Click on CAT797-001 row → navigate to Machine Detail
+
+3. **Component Diagnosis**
+   - View component health table
+   - Engine shows "Anormal", Transmission shows "Alerta"
+   - Component radar chart shows Engine score = 1.2 (highest)
+   - Click "Engine" → navigate to Component Detail
+
+4. **Signal Investigation**
+   - Signal status table shows:
+     - `EngCoolTemp`: Anormal (window_score: 1.2)
+     - `EngOilPres`: Alerta (window_score: 0.3)
+   - Click "EngCoolTemp" → open Signal Drill-Down modal
+
+5. **Evidence Validation**
+   - Boxplot shows current readings consistently above P98
+   - Time series reveals temperature spike started Day 3 of week
+   - Baseline percentile bands show readings in red zone (>98°C)
+   - **Decision**: Schedule immediate engine cooling system inspection
+
+6. **Action Taken**
+   - Note findings in maintenance system
+   - Export plots for maintenance report
+   - Set reminder to check next week's evaluation
 
 ---
 
-#### **Use Case 3: Pattern Recognition**
-> "Has Unit 247's engine coolant temperature been increasing over time, or is this a sudden spike?"
+## 🎨 Dashboard Layout
 
-**Solution**: Multi-week trend comparison with baseline overlays
+### Section: Monitoring → Telemetry
 
----
-
-#### **Use Case 4: State-Based Validation**
-> "The brakes are flagged as hot, but maybe that's normal when the truck is loaded going uphill?"
-
-**Solution**: State-conditioned analysis with GPS context
-
----
-
-## ⏱️ Data Update Frequency
-
-### Execution Schedule
-- **Analysis runs**: Every 8-12 hours (twice daily)
-- **Data granularity**: Weekly parquet files (Week{WW}Year{YYYY}.parquet)
-- **Output freshness**: `latest_sample_date` in machine_status.parquet shows last evaluation
-
-### Dashboard Refresh Strategy
-- **Real-time view**: Show results from most recent analysis run
-- **Historical view**: Allow week-by-week comparisons
-- **Status indicator**: Display "Last Updated: {timestamp}" prominently
-
----
-
-## 🏗️ Dashboard Structure
-
-### Proposed Layout: Three-Tab Design
-
-The Telemetry subsection should have **three tabs** to support different analysis depths:
+The telemetry dashboard is organized into **4 tabs**, each supporting a level of the diagnostic hierarchy:
 
 ```
-Monitoring > Telemetry
-├── Tab 1: Machine Status (Overview)
-├── Tab 2: Component Analysis (Drill-down)
-└── Tab 3: Signal Trends (Evidence)
+┌─────────────────────────────────────────────────────────────────┐
+│  MONITORING > Telemetry                                         │
+├─────────────────────────────────────────────────────────────────┤
+│  [Fleet Overview] [Machine Detail] [Component Detail] [Limits]  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📊 Visualization Catalog
+### Tab 1: Fleet Overview
 
-Below are **8 key visualizations** designed to address user needs effectively.
+**Purpose**: High-level fleet health snapshot
 
----
-
-### **Visualization 1: Machine Status Table**
-
-**Purpose**: Overview of all monitored units with current health grades
-
-**Visualization Type**: Interactive DataTable (Dash AG Grid or DataTable)
-
-**Columns**:
-| Column | Type | Description |
-|--------|------|-------------|
-| Unit | String | Equipment identifier |
-| Overall Status | Badge | Normal (🟢), Alerta (🟡), Anormal (🔴) |
-| Machine Score | Number | Total criticality score |
-| Priority Score | Number | Maintenance priority (higher = worse) |
-| Last Sample | Datetime | When last evaluated |
-| Critical Components | String | List of components in Alerta/Anormal |
-| Action | Button | "View Details" link to Tab 2 |
-
-**Features**:
-- ✅ Sortable by any column (default: Priority Score descending)
-- ✅ Filterable by status
-- ✅ Color-coded badges (green/yellow/red)
-- ✅ Clickable rows navigate to drill-down
-
-**Placement**: Tab 1 - Top section
-
-**Why this works**: Immediate actionable overview, prioritizes worst units
-
----
-
-### **Visualization 2: Fleet Health Sunburst Chart**
-
-**Purpose**: Hierarchical view of fleet health: Fleet → Machines → Components
-
-**Visualization Type**: Plotly Sunburst (or Treemap as alternative)
-
-**Hierarchy**:
-```
-Fleet (Root)
-├── Normal Units
-│   ├── Unit 101
-│   │   ├── Motor (Normal)
-│   │   ├── Brakes (Normal)
-│   │   └── ...
-├── Alerta Units
-│   ├── Unit 247
-│   │   ├── Motor (Anormal) ← Large slice
-│   │   ├── Brakes (Alerta)
-│   │   └── ...
-└── Anormal Units
-    └── Unit 312
-        ├── Powertrain (Anormal)
-        └── ...
-```
-
-**Color Scheme**:
-- Green: Normal
-- Yellow: Alerta
-- Red: Anormal
-- Size: Proportional to priority score
-
-**Interactions**:
-- Click to filter dashboard to selected unit/component
-
-**Placement**: Tab 1 - Middle section
-
-**Why this works**: Intuitive visual hierarchy, shows fleet composition at-a-glance
-
----
-
-### **Visualization 3: Component Heatmap (Per Unit)**
-
-**Purpose**: Show which components are problematic across the fleet
-
-**Visualization Type**: Plotly Heatmap
-
-**Axes**:
-- **Y-axis**: Units (one row per unit)
-- **X-axis**: Components (Motor, Brakes, Powertrain, Steering)
-- **Color**: Component status (Green/Yellow/Red)
-- **Hover**: Show component score + grade
-
-**Example**:
-```
-         Motor  Brakes  Powertrain  Steering
-Unit 101  🟢     🟢      🟢          🟢
-Unit 247  🔴     🟡      🟢          🟢
-Unit 312  🟢     🟢      🔴          🟡
-```
-
-**Interactions**:
-- Click cell to navigate to Tab 2 filtered for that unit/component
-
-**Placement**: Tab 1 - Bottom section
-
-**Why this works**: Easy to spot patterns (e.g., "All units have brake issues lately")
-
----
-
-### **Visualization 4: Week-over-Week Boxplot Comparison** ⭐
-
-**Purpose**: Compare current week sensor distributions against historical baseline
-
-**Visualization Type**: Plotly Box Plot (grouped)
-
-**Design**:
-- **X-axis**: Sensor signals (grouped by component)
-- **Y-axis**: Sensor value
-- **Boxes**: 
-  - **Baseline box** (gray): Historical baseline (P25, median, P75 from past 4-8 weeks)
-  - **Current week box** (blue): Current week distribution
-  - **Outliers**: Red dots for Anormal readings, yellow for Alerta
-
-**Example for Motor Component**:
-```
-EngCoolTemp    EngOilPres    EngSpd       LtExhTemp
-  📦📦          📦📦          📦📦         📦📦
-  gray blue     gray blue     gray blue    gray blue
-   ↑             ↑             ↑            ↑
-  Baseline    Current       Baseline     Current
-```
-
-**Interactions**:
-- Click signal to load Time Series Trend (Viz 5)
-
-**Placement**: Tab 2 - Top section (filter by unit + component)
-
-**Why this works**: 
-- ✅ **This is your original idea enhanced!**
-- ✅ Immediately shows "is current behavior normal?"
-- ✅ Statistical rigor with visual clarity
-- ✅ Validates grading logic visually
-
----
-
-### **Visualization 5: Signal Time Series with Baseline Bands**
-
-**Purpose**: Show detailed sensor behavior over time with grading thresholds
-
-**Visualization Type**: Plotly Line Chart with filled areas
-
-**Design**:
-- **X-axis**: Time (datetime)
-- **Y-axis**: Sensor value
-- **Visual layers**:
-  1. **Background bands**:
-     - Green zone: P5 - P95 (Normal range)
-     - Yellow zones: P1-P5 and P95-P99 (Alerta range)
-     - Red zones: <P1 and >P99 (Anormal range)
-  2. **Line plot**: Actual sensor readings (colored by grade)
-  3. **Median line**: Baseline P50 (dashed gray)
-  4. **Annotations**: Mark points where grade changes
-
-**Time Ranges**:
-- Default: Current week
-- Options: Last 2 weeks, Last 4 weeks, Last 8 weeks
-
-**Interactions**:
-- Zoom/pan
-- Hover for exact values + grade
-- Toggle baseline visibility
-
-**Placement**: Tab 3 - Main section (filter by unit + signal)
-
-**Why this works**: 
-- ✅ **Gold standard for evidence**
-- ✅ Shows why a signal was flagged
-- ✅ Temporal context reveals trends
-- ✅ Baseline bands justify grading decisions
-
----
-
-### **Visualization 6: Operational State Timeline**
-
-**Purpose**: Show equipment operational states alongside sensor trends
-
-**Visualization Type**: Plotly Gantt Chart or Timeline
-
-**Design**:
-- **X-axis**: Time
-- **Y-axis**: State categories
-- **Bars**: 
-  - Estado (Operational state)
-  - EstadoMaquina (Machine state)
-  - EstadoCarga (Load state)
-- **Color-coded states**:
-  - Operacional: Blue
-  - Ralenti: Gray
-  - Cargado: Orange
-  - Descargado: Light blue
-
-**Alignment**: Place directly above/below Visualization 5 (Time Series)
-
-**Placement**: Tab 3 - Above time series chart
-
-**Why this works**:
-- ✅ **Critical context**: "Sensor is high because truck was loaded uphill"
-- ✅ Validates state-conditioned analysis
-- ✅ Explains false positives
-
----
-
-### **Visualization 7: GPS Route Map with Alert Overlays**
-
-**Purpose**: Spatial context for alerts (where did issues occur?)
-
-**Visualization Type**: Plotly Scattermapbox
-
-**Design**:
-- **Base layer**: Satellite or terrain map
-- **Route line**: GPS trajectory (GPSLat, GPSLon) colored by time
-- **Alert markers**: 
-  - 🟡 Yellow pins: Alerta readings
-  - 🔴 Red pins: Anormal readings
-- **Hover info**: 
-  - Time
-  - GPS elevation
-  - Sensor values at that location
-  - State (Operacional, Cargado, etc.)
-
-**Interactions**:
-- Click marker to jump to that timestamp in Time Series (Viz 5)
-- Filter by date range
-
-**Placement**: Tab 3 - Bottom section (optional, show if GPS data available)
-
-**Why this works**:
-- ✅ "Brakes always overheat on the steep descent road"
-- ✅ Identifies location-specific issues
-- ✅ Correlates terrain (GPSElevation) with sensor behavior
-
----
-
-### **Visualization 8: Component Status Radar Chart**
-
-**Purpose**: Multi-dimensional view of component health
-
-**Visualization Type**: Plotly Radar Chart
-
-**Design**:
-- **Axes**: One per component (Motor, Brakes, Powertrain, Steering)
-- **Values**: Normalized component scores (0-10 scale)
-- **Plots**:
-  - Current week (solid line)
-  - Previous week (dashed line)
-  - Baseline (faded line)
-
-**Color**: 
-- Green area: All normal
-- Yellow/Red shading: Problem zones
-
-**Placement**: Tab 2 - Middle section (filter by unit)
-
-**Why this works**:
-- ✅ Holistic unit health snapshot
-- ✅ Easy to see which component is worst
-- ✅ Week-over-week comparison
-
----
-
-## 🎨 Layout Specifications
-
-### **TAB 1: Machine Status (Fleet Overview)**
-
-**Purpose**: High-level fleet health monitoring
+**Layout**:
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ 🔧 Telemetry Monitoring - Machine Status                  │
-│ Last Updated: Feb 18, 2026 14:30 | Refresh Data ↻        │
-├────────────────────────────────────────────────────────────┤
-│ FILTERS:                                                   │
-│ [All Units ▼] [All Status ▼] [Week Selector ▼]           │
-├────────────────────────────────────────────────────────────┤
-│ KPI CARDS:                                                 │
-│ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐         │
-│ │ Total   │ │ Normal  │ │ Alerta  │ │ Anormal │         │
-│ │ Units   │ │ Units   │ │ Units   │ │ Units   │         │
-│ │   45    │ │   38    │ │    5    │ │    2    │         │
-│ └─────────┘ └─────────┘ └─────────┘ └─────────┘         │
-├────────────────────────────────────────────────────────────┤
-│ VISUALIZATION 1: Machine Status Table                     │
-│ [Sortable, filterable, clickable DataTable]              │
-│ Shows all units with status, scores, critical comps      │
-├────────────────────────────────────────────────────────────┤
-│ LEFT (60%):              │ RIGHT (40%):                   │
-│ VISUALIZATION 2:         │ VISUALIZATION 3:              │
-│ Fleet Health Sunburst    │ Component Heatmap             │
-│ [Interactive sunburst]   │ [Unit x Component heatmap]    │
+│  KPI Cards Row                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│  │  Total   │  │  Normal  │  │  Alerta  │  │ Anormal  │  │
+│  │  Units   │  │   75%    │  │   18%    │  │    7%    │  │
+│  │   120    │  │    90    │  │    22    │  │    8     │  │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Fleet Status Table                                        │
+│  [Search Box] [Status Filter ▼] [Export CSV]              │
+│                                                            │
+│  Unit ID    │ Status   │ Priority │ Components │ Actions │
+│  ──────────────────────────────────────────────────────── │
+│  CAT797-001 │ Anormal  │  120.8   │  1/2/9     │  View   │
+│  CAT795-034 │ Anormal  │  115.2   │  2/1/11    │  View   │
+│  KOM930-012 │ Alerta   │   25.4   │  0/2/10    │  View   │
+│  ...                                                       │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Fleet Status Distribution (Pie Chart)                    │
+│  • Normal: 75% (90 units)                                  │
+│  • Alerta: 18% (22 units)                                  │
+│  • Anormal: 7% (8 units)                                   │
 └────────────────────────────────────────────────────────────┘
 ```
 
-**User Flow**:
-1. View KPIs → Understand fleet health at-a-glance
-2. Scan table → Identify priority units
-3. Click "View Details" → Navigate to Tab 2
+**Components**:
+1. **KPI Cards** (Plotly Indicator/Card)
+   - Total units evaluated
+   - % and count per status category
+   - Color-coded: Green (Normal), Yellow (Alerta), Red (Anormal)
+
+2. **Fleet Status Table** (Dash DataTable)
+   - Columns:
+     - `Unit ID`: Clickable link to Machine Detail
+     - `Status`: Badge with color
+     - `Priority Score`: Numeric sorter
+     - `Components`: Format as "Anormal/Alerta/Normal"
+     - `Actions`: "View" button
+   - Features:
+     - Sortable columns
+     - Filter by status
+     - Search by unit ID
+     - Export to CSV
+   - Default sort: `priority_score` descending
+
+3. **Status Distribution Pie Chart** (Plotly Pie)
+   - Visual breakdown of fleet health
+   - Clickable segments filter table
 
 ---
 
-### **TAB 2: Component Analysis (Drill-Down)**
+### Tab 2: Machine Detail
 
-**Purpose**: Detailed component-level analysis for selected unit
+**Purpose**: Deep dive into a specific unit's health
+
+**Layout**:
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ 🔍 Component Analysis - Unit 247                          │
-│ Last Sample: Feb 18, 2026 12:00 | Status: 🔴 Anormal     │
-├────────────────────────────────────────────────────────────┤
-│ FILTERS:                                                   │
-│ [Unit Selector ▼] [Component Selector ▼] [Week Range ▼]  │
-├────────────────────────────────────────────────────────────┤
-│ COMPONENT SUMMARY CARDS:                                   │
-│ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐         │
-│ │ Motor   │ │ Brakes  │ │Powertrain││Steering│         │
-│ │🔴Anormal│ │🟡Alerta  │ │🟢Normal  │ │🟢Normal │         │
-│ │Score: 25│ │Score: 10│ │Score: 0  │ │Score: 0│         │
-│ └─────────┘ └─────────┘ └─────────┘ └─────────┘         │
-├────────────────────────────────────────────────────────────┤
-│ VISUALIZATION 8: Component Radar Chart                    │
-│ [Shows all 4 components on radar, current vs baseline]   │
-├────────────────────────────────────────────────────────────┤
-│ VISUALIZATION 4: Week-over-Week Boxplot Comparison ⭐     │
-│ [Boxplots for all signals in selected component]         │
-│ Showing: Motor Component (10 signals)                    │
-│ Gray boxes = Baseline, Blue boxes = Current week         │
-│ Red/Yellow outliers marked                                │
-├────────────────────────────────────────────────────────────┤
-│ SIGNAL DETAILS TABLE:                                      │
-│ [List signals with grade, score, baseline stats]         │
-│ Click signal to view time series in Tab 3 →              │
+│  Machine Selection & Info                                  │
+│  Unit: [CAT797-001 ▼]  Status: Anormal  Week: 08/2026    │
+│  Last Sample: 2026-02-22 23:59  Baseline: 20260201        │
+└────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────┐  ┌─────────────────────────┐
+│  Component Status Table     │  │  Component Radar Chart  │
+│  Component  │ Status │ Score│  │                         │
+│  ─────────────────────────  │  │      Engine (1.2)       │
+│  Engine     │ Anormal│ 1.2 │  │         ╱│╲             │
+│  Transmiss. │ Alerta │ 0.3 │  │    Trans│   Hydraulic   │
+│  Hydraulic  │ Normal │ 0.0 │  │         │               │
+│  Brakes     │ Normal │ 0.0 │  │    Elec.│   Brakes      │
+│  ...                        │  │         │               │
+│                             │  │                         │
+└─────────────────────────────┘  └─────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Component Details Panel (Expandable)                      │
+│  ► Engine (Anormal)                                        │
+│    Triggering Signals: EngCoolTemp, EngOilPres            │
+│    [View Component Detail] [View Time Series]             │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Weekly Status Timeline (Optional - Phase 2)               │
+│  Week 04 │ Week 05 │ Week 06 │ Week 07 │ Week 08         │
+│  Normal  │ Normal  │ Alerta  │ Alerta  │ Anormal         │
 └────────────────────────────────────────────────────────────┘
 ```
 
-**User Flow**:
-1. Select unit + component
-2. View radar chart → Understand component health distribution
-3. Inspect boxplot → See which signals are abnormal
-4. Click signal → Navigate to Tab 3 for evidence
+**Components**:
+1. **Machine Selector** (Dash Dropdown)
+   - Populated from `machine_status.parquet`
+   - Shows unit ID + current status
+   - Updates all visualizations on selection
+
+2. **Machine Info Header**
+   - Display key metadata from `machine_status` row
+   - Status badge, evaluation week, timestamps
+
+3. **Component Status Table** (Dash DataTable)
+   - Source: `component_details` field
+   - Columns: Component name, Status, Score
+   - Sortable by score (default: descending)
+   - Clickable rows → navigate to Component Detail tab
+   - Color-coded status badges
+
+4. **Component Radar Chart** (Plotly Scatterpolar)
+   - Each axis = component
+   - Radial value = component_score (normalized 0-3)
+   - Color zones: Green (0-0.2), Yellow (0.2-0.4), Red (0.4+)
+   - Hover: Show component name, score, status
+
+5. **Component Details Accordion** (Dash Accordion/Collapse)
+   - Expandable panels per component
+   - Show `triggering_signals` list
+   - Quick navigation buttons:
+     - "View Component Detail" → Tab 3
+     - "View Time Series" → Signal modal
 
 ---
 
-### **TAB 3: Signal Trends (Evidence)**
+### Tab 3: Component Detail
 
-**Purpose**: Detailed time series evidence for diagnostic validation
+**Purpose**: Analyze specific component's signal evaluations
+
+**Layout**:
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ 📈 Signal Trends - Unit 247 - EngCoolTemp                │
-│ Grade: 🔴 Anormal | Score: 10 | Component: Motor         │
-├────────────────────────────────────────────────────────────┤
-│ FILTERS:                                                   │
-│ [Unit ▼] [Signal ▼] [Time Range: Last 4 weeks ▼]        │
-├────────────────────────────────────────────────────────────┤
-│ VISUALIZATION 6: Operational State Timeline               │
-│ [Gantt chart showing Estado, EstadoMaquina, EstadoCarga] │
-├────────────────────────────────────────────────────────────┤
-│ VISUALIZATION 5: Signal Time Series with Baseline Bands ⭐│
-│ [Line chart with green/yellow/red background zones]      │
-│ - Green zone: Normal range (P5-P95)                      │
-│ - Yellow zones: Alerta range (P1-P5, P95-P99)           │
-│ - Red zones: Anormal (<P1, >P99)                         │
-│ - Median baseline: Dashed gray line                      │
-│ - Actual values: Colored line (green/yellow/red)        │
-├────────────────────────────────────────────────────────────┤
-│ CONTEXT KPIs (when signal flagged):                       │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐      │
-│ │ Max Value    │ │ Baseline P95 │ │ Exceedances  │      │
-│ │   103.5°C    │ │    95.2°C    │ │    47 times  │      │
-│ └──────────────┘ └──────────────┘ └──────────────┘      │
-├────────────────────────────────────────────────────────────┤
-│ VISUALIZATION 7: GPS Route Map (Optional)                 │
-│ [Map showing route with alert markers]                   │
-│ Red pins where EngCoolTemp exceeded Anormal threshold    │
+│  Component Selection                                       │
+│  Unit: [CAT797-001 ▼]  Component: [Engine ▼]             │
+│  Status: Anormal  Score: 0.52  Coverage: 85%  Week: 08/26│
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Signal Evaluation Table                                   │
+│  Signal      │ Status │ Window │ Severity │ Weight │ ... │
+│  ──────────────────────────────────────────────────────── │
+│  EngCoolTemp │ Anormal│  1.20  │   1.0    │  1.0   │ 🔍 │
+│  EngOilPres  │ Alerta │  0.30  │   0.3    │  1.0   │ 🔍 │
+│  EngSpeed    │ Normal │  0.05  │   0.0    │  1.0   │ 🔍 │
+│  EngOilTemp  │ Normal │  0.08  │   0.0    │  0.0   │ 🔍 │
+│  ...                                                       │
+│  🔍 = View Signal Detail (opens modal)                     │
+│  Weight: 1.0 = Sufficient data, 0.0 = Insufficient        │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Signal Distribution Comparison (Boxplots)                 │
+│  [Multi-select signals: EngCoolTemp ☑  EngOilPres ☑ ]    │
+│                                                            │
+│    EngCoolTemp                    EngOilPres              │
+│        │                              │                   │
+│    ────┼─────  P98                ────┼─────  P98         │
+│    ████████████                   ████▒▒▒▒▒▒             │
+│    ████████████  P95              ████████████  P95       │
+│    ████████████                   ████████████            │
+│    ████████████  Current Week     ████████████  Current   │
+│    ████████████                   ████████████            │
+│    ────────────  P5               ────────────  P5        │
+│    ────┼─────  P2                 ────┼─────  P2          │
+│                                                            │
+│  Legend: ▓ Baseline  ▒ Current Week                       │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  AI Recommendation (Phase 2)                               │
+│  🤖 "Engine coolant temperature consistently exceeds       │
+│      normal range. Recommend inspection of:                │
+│      • Coolant pump functionality                          │
+│      • Radiator blockage                                   │
+│      • Thermostat operation"                               │
 └────────────────────────────────────────────────────────────┘
 ```
 
-**User Flow**:
-1. Select signal to investigate
-2. View state timeline → Understand operational context
-3. Inspect time series → See when/how signal exceeded thresholds
-4. Check GPS map → Identify if location-specific
-5. Export evidence for maintenance report
+**Components**:
+1. **Component Selector** (Cascading Dropdowns)
+   - First dropdown: Unit ID
+   - Second dropdown: Component (populated from selected unit's components)
+   - Auto-load on selection
+
+2. **Signal Evaluation Table** (Dash DataTable)
+   - Source: `classified.parquet` → `signals_evaluation` field
+   - Columns:
+     - Signal name
+     - Status badge
+     - Window score (numeric, 2 decimals)
+     - Severity (mapped: 0.0, 0.3, 1.0)
+     - Weight (data quality: 0.0 or 1.0)
+     - Anomaly percentage (% of readings outside P5-P95)
+     - Action icon (🔍 for detail modal)
+   - Sortable by window score or severity
+   - Conditional formatting:
+     - Row color by status
+     - Gray out signals with weight=0.0 (insufficient data)
+
+3. **Boxplot Comparison** (Plotly Box)
+   - Multi-select signals to compare
+   - Each signal shows:
+     - **Historical baseline**: Box from P5 to P95, whiskers to P2/P98
+     - **Current week**: Overlayed box showing distribution of actual readings
+   - Color scheme:
+     - Baseline: Light blue box
+     - Current week: Red (if Anormal), Orange (if Alerta), Green (if Normal)
+   - Annotations: P2, P5, P95, P98 threshold lines
+   - Hover: Show exact percentile values and observed min/max
+
+4. **AI Recommendation Panel** (Phase 2)
+   - Display LLM-generated maintenance recommendation
+   - Collapsible panel
+   - Copy-to-clipboard button
 
 ---
 
-## 🔄 Interactive Features
+### Tab 4: Limits
 
-### Cross-Tab Navigation
+**Purpose**: Display sensor thresholds and baseline percentiles
 
-**Enable seamless drill-down flow**:
-1. **Tab 1 → Tab 2**: Click unit in table/chart → Navigate to Tab 2 filtered for that unit
-2. **Tab 2 → Tab 3**: Click signal in boxplot/table → Navigate to Tab 3 filtered for that signal
-3. **Tab 3 → Tab 1**: "Back to Overview" button
+**Layout**:
 
-### Filtering System
+```
+┌────────────────────────────────────────────────────────────┐
+│  Baseline Configuration                                    │
+│  Baseline Version: [20260201 ▼]  Training Window: 90 days │
+│  Training Period: 2025-11-03 to 2026-02-01                │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Percentile Thresholds Table                               │
+│  [Filter: Unit ▼] [Signal ▼] [State ▼]  [Export CSV]     │
+│                                                            │
+│  Unit  │ Signal     │ State  │ P2  │ P5  │ P95 │ P98 │N  │
+│  ──────────────────────────────────────────────────────── │
+│  CAT797│EngCoolTemp │ Oper.  │ 75  │ 78  │ 95  │ 98  │850│
+│  CAT797│EngCoolTemp │ Ralenti│ 65  │ 68  │ 85  │ 88  │420│
+│  CAT797│EngOilPres  │ Oper.  │ 45  │ 48  │ 72  │ 75  │850│
+│  ...                                                       │
+│  N = Sample count in training window                      │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  Threshold Distribution Histogram                          │
+│  Signal: [EngCoolTemp ▼]  State: [Operacional ▼]         │
+│                                                            │
+│  Count                                                     │
+│    │                                                       │
+│ 80 │        ███████                                        │
+│ 60 │    ███████████████                                    │
+│ 40 │  █████████████████████                                │
+│ 20 │██████████████████████████████                         │
+│  0 │────────────────────────────────────                  │
+│       P2  P5         P95 P98                              │
+│       65  70   ...   90  95  (°C)                         │
+│                                                            │
+│  Shaded regions: Red (<P2, >P98), Yellow (P2-P5, P95-P98)│
+└────────────────────────────────────────────────────────────┘
+```
+
+**Components**:
+1. **Baseline Metadata Display**
+   - Show active baseline version
+   - Training window parameters
+   - Date range used for percentile calculation
+
+2. **Thresholds Table** (Dash DataTable)
+   - Source: `baselines/baseline_YYYYMMDD.parquet`
+   - All columns visible
+   - Filters: Unit, Signal, Operational State
+   - Export functionality
+   - Pagination for large datasets
+
+3. **Distribution Histogram** (Plotly Histogram)
+   - Show actual distribution of training data
+   - Overlay percentile lines (P2, P5, P95, P98)
+   - Color-coded zones:
+     - Red: <P2 and >P98 (Alarm)
+     - Yellow: P2-P5 and P95-P98 (Alert)
+     - Green: P5-P95 (Normal)
+   - Single signal selection
+
+---
+
+## 📊 Visualization Specifications
+
+### 1. Fleet Status Table
+**Library**: Dash DataTable  
+**Data**: `machine_status.parquet`
+
+```python
+ddt.DataTable(
+    id='fleet-status-table',
+    columns=[
+        {'name': 'Unit ID', 'id': 'unit_id', 'presentation': 'markdown'},
+        {'name': 'Status', 'id': 'overall_status'},
+        {'name': 'Priority', 'id': 'priority_score', 'type': 'numeric'},
+        {'name': 'Anormal', 'id': 'components_anormal', 'type': 'numeric'},
+        {'name': 'Alerta', 'id': 'components_alerta', 'type': 'numeric'},
+        {'name': 'Normal', 'id': 'components_normal', 'type': 'numeric'},
+    ],
+    data=df.to_dict('records'),
+    sort_action='native',
+    filter_action='native',
+    page_size=20,
+    style_data_conditional=[
+        {
+            'if': {'filter_query': '{overall_status} = "Anormal"'},
+            'backgroundColor': '#ffcccc',
+            'color': 'darkred'
+        },
+        {
+            'if': {'filter_query': '{overall_status} = "Alerta"'},
+            'backgroundColor': '#fff4cc',
+            'color': 'darkorange'
+        },
+    ],
+)
+```
+
+---
+
+### 2. Component Radar Chart
+**Library**: Plotly Scatterpolar  
+**Data**: `component_details` from `machine_status.parquet`
+
+```python
+fig = go.Figure(data=go.Scatterpolar(
+    r=[comp['score'] for comp in component_details],
+    theta=[comp['component'] for comp in component_details],
+    fill='toself',
+    name='Component Scores',
+    line=dict(color='crimson'),
+    marker=dict(size=8)
+))
+
+fig.update_layout(
+    polar=dict(
+        radialaxis=dict(
+            visible=True,
+            range=[0, 1.0],  # Updated range for severity-based scoring
+            tickvals=[0.0, 0.15, 0.45, 0.7, 1.0],
+            ticktext=['Normal', 'Threshold', 'Alerta', 'Critical', 'Max']
+        )
+    ),
+    showlegend=True
+)
+```
+
+**Key Features**:
+- Radial axis: 0 (center) to 1.0 (outer edge)
+- Color zones via shape annotations:
+  - Green circle: 0-0.15 (Normal range)
+  - Yellow ring: 0.15-0.45 (Alerta range)
+  - Red ring: 0.45-1.0 (Anormal range)
+- Hoverlabel: Show component name, exact score, status, coverage%
+
+---
+
+### 3. Signal Distribution Boxplot
+**Library**: Plotly Box  
+**Data**: Silver layer (week partition) + baseline percentiles
+
+```python
+fig = go.Figure()
+
+# Baseline box (historical)
+fig.add_trace(go.Box(
+    name='Baseline',
+    q1=[baseline['p5']],
+    median=[(baseline['p5'] + baseline['p95']) / 2],
+    q3=[baseline['p95']],
+    lowerfence=[baseline['p2']],
+    upperfence=[baseline['p98']],
+    marker_color='lightblue',
+    width=0.4
+))
+
+# Current week box (observed)
+fig.add_trace(go.Box(
+    name='Current Week',
+    y=current_week_readings,
+    marker_color='crimson' if status == 'Anormal' else 'orange' if status == 'Alerta' else 'green',
+    width=0.4
+))
+
+fig.update_layout(
+    title=f'{signal_name} Distribution: Baseline vs. Current Week',
+    yaxis_title='Signal Value',
+    showlegend=True
+)
+
+# Add horizontal lines for P2, P5, P95, P98
+for percentile, value, color in [('P2', baseline['p2'], 'red'), 
+                                   ('P5', baseline['p5'], 'orange'),
+                                   ('P95', baseline['p95'], 'orange'),
+                                   ('P98', baseline['p98'], 'red')]:
+    fig.add_hline(y=value, line_dash='dash', line_color=color, 
+                  annotation_text=percentile, annotation_position='right')
+```
+
+**Key Features**:
+- Side-by-side comparison
+- Baseline box uses percentiles as quartiles (visual approximation)
+- Current week box uses actual readings
+- Threshold lines clearly marked
+- Color indicates severity
+
+---
+
+### 4. Signal Time Series with Thresholds
+**Library**: Plotly Scatter  
+**Data**: Silver layer (week partition) + baseline percentiles
+
+```python
+fig = go.Figure()
+
+# Add threshold bands as filled areas
+fig.add_hrect(y0=baseline['p98'], y1=max_value, fillcolor='red', opacity=0.2, layer='below', line_width=0)
+fig.add_hrect(y0=baseline['p95'], y1=baseline['p98'], fillcolor='orange', opacity=0.2, layer='below', line_width=0)
+fig.add_hrect(y0=baseline['p5'], y1=baseline['p95'], fillcolor='green', opacity=0.1, layer='below', line_width=0)
+fig.add_hrect(y0=baseline['p2'], y1=baseline['p5'], fillcolor='orange', opacity=0.2, layer='below', line_width=0)
+fig.add_hrect(y0=min_value, y1=baseline['p2'], fillcolor='red', opacity=0.2, layer='below', line_width=0)
+
+# Add actual readings
+fig.add_trace(go.Scatter(
+    x=df['Fecha'],
+    y=df[signal_name],
+    mode='lines+markers',
+    name='Readings',
+    line=dict(color='blue', width=2),
+    marker=dict(size=4)
+))
+
+# Add percentile lines
+for p, val in [('P98', baseline['p98']), ('P95', baseline['p95']), 
+               ('P5', baseline['p5']), ('P2', baseline['p2'])]:
+    fig.add_hline(y=val, line_dash='dot', line_color='gray', annotation_text=p)
+
+fig.update_layout(
+    title=f'{signal_name} Time Series - Week {week}/{year}',
+    xaxis_title='Date',
+    yaxis_title='Value',
+    hovermode='x unified'
+)
+```
+
+**Key Features**:
+- Colored background zones for threshold bands
+- Clear visual indication of when readings cross thresholds
+- Time axis shows full evaluation window
+- Hover shows exact timestamp and value
+
+---
+
+### 5. KPI Cards
+**Library**: Plotly Indicator  
+**Data**: Aggregated from `machine_status.parquet`
+
+```python
+fig = go.Figure(go.Indicator(
+    mode='number+delta',
+    value=components_anormal_count,
+    title={'text': 'Anormal<br><span style="font-size:0.8em">Components</span>'},
+    delta={'reference': previous_week_count, 'relative': False},
+    domain={'x': [0, 1], 'y': [0, 1]},
+    number={'font': {'size': 48, 'color': 'darkred'}}
+))
+
+fig.update_layout(
+    height=150,
+    margin=dict(t=30, b=0, l=10, r=10)
+)
+```
+
+**Key Features**:
+- Large number for immediate impact
+- Delta shows change from previous week (Phase 2)
+- Color-coded by severity
+- Compact layout for dashboard header
+
+---
+
+## 🖱️ Interaction Patterns
+
+### Navigation Flow
+
+```
+Fleet Overview (Tab 1)
+  │
+  ├─→ Click unit row ─────────→ Machine Detail (Tab 2)
+  │                                  │
+  │                                  ├─→ Click component ──→ Component Detail (Tab 3)
+  │                                  │                            │
+  │                                  │                            └─→ Click signal icon ──→ Signal Modal
+  │                                  │
+  │                                  └─→ Click "View Time Series" ──→ Signal Modal
+  │
+  └─→ Click "Limits" menu ──→ Limits (Tab 4)
+```
+
+### Signal Detail Modal
+
+**Trigger**: Click 🔍 icon in Component Detail table
+
+**Content**:
+- Signal name and current status
+- Time series plot with threshold bands
+- Boxplot comparison
+- Summary statistics table:
+  - Min/Max/Mean/Median observed
+  - Baseline percentiles
+  - Anomaly percentage
+  - Window score
+
+**Actions**:
+- Close modal
+- Export plot as PNG
+- Download data as CSV
+
+### Filtering & Drill-Down
 
 **Global Filters** (persist across tabs):
-- **Unit Selector**: Dropdown or multi-select
-- **Date Range**: Week selector or date range picker
-- **Status Filter**: All, Normal, Alerta, Anormal
+- Client selection (if multi-client)
+- Week/Year selection (for historical review)
 
 **Tab-Specific Filters**:
-- Tab 2: Component selector
-- Tab 3: Signal selector, State filter
+- Fleet Overview: Status filter, search box
+- Machine Detail: Unit selector
+- Component Detail: Unit + Component selector
+- Limits: Unit, Signal, State filters
 
-### Data Export
-
-**Enable report generation**:
-- Export Machine Status Table → Excel/CSV
-- Export Signal Time Series → CSV (with grades)
-- Export Evidence Plot → PNG/PDF for maintenance reports
-
----
-
-## 📐 Evidence-Based Design Principles
-
-### Why This Layout Works
-
-#### **1. Progressive Disclosure**
-- Tab 1: Overview (what's wrong?)
-- Tab 2: Diagnosis (which component?)
-- Tab 3: Evidence (why is it wrong?)
-
-**Benefit**: Users don't get overwhelmed, can drill down as needed
+**Breadcrumb Navigation**:
+```
+Home > Monitoring > Telemetry > Machine Detail > CAT797-001 > Engine
+```
+- Clickable breadcrumbs for quick back-navigation
 
 ---
 
-#### **2. Multiple Views of Same Data**
+## 🛠️ Technical Implementation Notes
 
-The same grading logic is visualized in complementary ways:
-- **Table**: Precise numbers for sorting/filtering
-- **Sunburst**: Hierarchical relationships
-- **Heatmap**: Pattern recognition across fleet
-- **Boxplot**: Statistical validity
-- **Time series**: Temporal evidence
+### Plotly + Dash Stack
 
-**Benefit**: Different users prefer different views; all needs covered
+**Core Libraries**:
+```python
+dash==2.14.2
+dash-bootstrap-components==1.5.0
+plotly==5.18.0
+pandas==2.1.4
+```
 
----
+**Layout Framework**:
+- Use Dash Bootstrap Components for responsive grid
+- 12-column layout system
+- Mobile-friendly (collapsed tables on small screens)
 
-#### **3. Baseline Comparisons are Everywhere**
+### Performance Optimization
 
-Every visualization shows current vs. historical:
-- Boxplot: Current week vs. baseline weeks
-- Time series: Actual vs. median + bands
-- Radar: Current vs. previous week
+**Data Loading Strategy**:
+1. Load `machine_status.parquet` once on dashboard init
+2. Cache in dcc.Store component
+3. Load `classified.parquet` only when Component Detail tab accessed
+4. Load Silver layer data only for Signal Modal (on-demand)
 
-**Benefit**: **Always answering "Is this normal?"** ← Core user question
+**Callback Optimization**:
+- Use `prevent_initial_call=True` where appropriate
+- Implement `@dash.callback` with `Input`/`Output`/`State` carefully
+- Avoid circular callbacks
 
----
+**Large Dataset Handling**:
+- Pagination in tables (page_size=20)
+- Lazy loading for drill-downs
+- Client-side sorting/filtering where possible
 
-#### **4. Context is King**
+### State Management
 
-Evidence is never shown in isolation:
-- Time series + State timeline
-- Time series + GPS map
-- Boxplot + Component grouping
+**Use dcc.Store for**:
+- Currently selected unit
+- Currently selected component
+- Current week/year filter
+- Cached machine_status dataframe
 
-**Benefit**: Prevents false conclusions (e.g., "High temp, but truck was fully loaded")
+**URL Routing**:
+- Implement `dcc.Location` for shareable links
+- Example: `/telemetry/machine/CAT797-001`
+- Parse URL params to pre-select unit/component
 
----
+### Styling
 
-#### **5. Actionable Design**
+**Color Palette**:
+- Normal: `#28a745` (green)
+- Alerta: `#ffc107` (yellow/amber)
+- Anormal: `#dc3545` (red)
+- Background: `#f8f9fa` (light gray)
+- Cards: `#ffffff` (white)
 
-Every visualization enables action:
-- Status table → Prioritized maintenance list
-- Heatmap → Identify fleet-wide component issues
-- Time series → Confirm diagnosis before repair
+**Typography**:
+- Headers: Roboto Bold, 18-24px
+- Body: Roboto Regular, 14px
+- Tables: Monospace for numeric columns
 
-**Benefit**: Dashboard drives decisions, not just displays data
+**Bootstrap Theme**:
+- Use `dbc.themes.FLATLY` or `COSMO` for clean, professional look
 
----
+### Accessibility
 
-## 🎨 Visual Design Consistency
-
-### Color Palette
-
-**Status Colors** (use everywhere):
-- 🟢 Normal: `#28a745` (green)
-- 🟡 Alerta: `#ffc107` (amber)
-- 🔴 Anormal: `#dc3545` (red)
-- ⚪ Unknown/No Data: `#6c757d` (gray)
-
-**Chart Colors**:
-- Baseline histograms: `#adb5bd` (light gray)
-- Current data: `#007bff` (blue)
-- Thresholds: Dashed `#343a40` (dark gray)
-
-### Typography
-
-- **KPI Numbers**: 36px, bold
-- **Section Headers**: 20px, semi-bold
-- **Table Text**: 14px, regular
-- **Hover Labels**: 12px, regular
-
-### Layout Consistency
-
-- Filters always at top
-- KPIs below filters (horizontal cards)
-- Main visualizations below KPIs
-- Supporting visualizations below main charts
+- Color-blind friendly palette (use patterns in addition to colors)
+- Alt text for all plots
+- Keyboard navigation support
+- ARIA labels for interactive elements
 
 ---
 
-## 🚀 Implementation Priorities
+## 📈 Success Metrics
 
-### Phase 1: MVP (Essential Visualizations)
+**Dashboard Performance**:
+- Page load time: <2 seconds for Fleet Overview
+- Drill-down latency: <1 second for Machine/Component Detail
+- Data refresh: <30 seconds for full pipeline run
 
-**Must-Have for Launch**:
-1. ✅ Visualization 1: Machine Status Table
-2. ✅ Visualization 3: Component Heatmap
-3. ✅ Visualization 4: Week-over-Week Boxplot ⭐
-4. ✅ Visualization 5: Signal Time Series with Bands ⭐
+**User Engagement**:
+- Time to identify high-priority machine: <30 seconds
+- Click depth to root cause signal: ≤3 clicks
+- False positive feedback rate: <10%
 
-**Rationale**: Covers overview → drill-down → evidence flow
-
----
-
-### Phase 2: Enhancements
-
-**Nice-to-Have**:
-5. ✅ Visualization 2: Fleet Sunburst
-6. ✅ Visualization 6: State Timeline
-7. ✅ Visualization 8: Radar Chart
-
-**Rationale**: Improves UX and pattern recognition
+**Business Impact**:
+- Reduction in unplanned downtime
+- Faster Mean Time To Repair (MTTR)
+- Increased proactive maintenance interventions
 
 ---
 
-### Phase 3: Advanced
+## 🚀 Phased Rollout
 
-**Optional**:
-8. ✅ Visualization 7: GPS Map
+### Phase 1 - MVP (Current Scope)
+✅ Fleet Overview with sortable table  
+✅ Machine Detail with component radar chart  
+✅ Component Detail with signal evaluation table  
+✅ Boxplot comparison for baseline validation  
+✅ Limits tab with threshold display  
 
-**Rationale**: High value but requires additional GPS data processing
+### Phase 2 - Enhanced Features
+🔄 AI Recommendations per component  
+🔄 Weekly status timeline (historical trend)  
+🔄 Delta indicators in KPI cards (week-over-week)  
+🔄 Export functionality for all visualizations  
+🔄 Maintenance action logging integration  
 
----
-
-## 📊 Data Requirements Summary
-
-### Tab 1 (Machine Status)
-**Data Source**: `machine_status.parquet`
-- Columns needed: All (unit_id, overall_status, machine_score, priority_score, component_details, etc.)
-
-### Tab 2 (Component Analysis)
-**Data Source**: `classified.parquet`
-- Columns needed: unit, date, component, component_status, signals_evaluation
-
-### Tab 3 (Signal Trends)
-**Data Sources**: 
-1. `Telemetry_Wide_With_States/Week{WW}Year{YYYY}.parquet` (raw sensor data)
-2. `classified.parquet` (grades)
-3. Baseline statistics (computed from historical weeks)
-
-**Baseline Calculation**:
-- Pre-compute percentiles (P1, P5, P25, P50, P75, P95, P99) per signal + state
-- Store in `signal_baselines.parquet` for fast loading
+### Phase 3 - Advanced Analytics
+🔮 Predictive alerts (forecasting)  
+🔮 Anomaly heatmaps (signals × time)  
+🔮 Component health scores over time  
+🔮 Fleet-wide signal correlation matrix  
 
 ---
 
-## 📚 Success Metrics
+## 📚 Related Documentation
 
-### User Engagement
-- ✅ 80%+ of users access Tab 3 (evidence) when investigating Anormal units
-- ✅ Average time to diagnosis < 5 minutes
-
-### Technical Performance
-- ✅ Tab load time < 2 seconds
-- ✅ Chart rendering < 1 second
-- ✅ Smooth interactions (no lag)
-
-### Business Impact
-- ✅ 90% of flagged Anormal cases confirmed by field inspection
-- ✅ False positive rate < 15%
+- [Project Overview](project_overview.md) - Scoring methodology and architecture
+- [Integration Plan](integration_plan.md) - Implementation phases
+- [Programming Rules](programming_rules.md) - Code standards
+- [Dashboard Overview](../general/dashboard_overview.md) - Platform architecture
 
 ---
 
-## 🔗 Related Documentation
+## 📝 Version History
 
-- **Project Overview**: `project_overview.md` - Analysis method details
-- **Implementation Plan**: `implementation_plan.md` - Build steps
-- **Data Contracts**: Define exact schema for machine_status.parquet and classified.parquet
-
----
-
-**Document Status**: ✅ Ready for Review  
-**Recommended Visualizations**: Start with Viz 1, 3, 4, 5 (MVP)  
-**Key Innovation**: Boxplot + Time Series with baseline bands = statistical rigor + visual evidence
+### Version 1.0.0 (February 2026)
+- Initial dashboard proposal
+- 4-tab layout design
+- Plotly + Dash visualization specifications
+- User journey and interaction patterns defined

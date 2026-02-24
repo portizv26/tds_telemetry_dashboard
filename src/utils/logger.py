@@ -5,7 +5,18 @@ Provides easy access to configured loggers throughout the application.
 """
 
 import logging
-from config.logging_config import get_logger as _get_logger
+import sys
+from pathlib import Path
+
+
+# Configure basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -23,7 +34,7 @@ def get_logger(name: str) -> logging.Logger:
         logger = get_logger(__name__)
         logger.info("Processing data...")
     """
-    return _get_logger(name)
+    return logging.getLogger(name)
 
 
 class LoggerMixin:
@@ -40,3 +51,7 @@ class LoggerMixin:
     def logger(self) -> logging.Logger:
         """Get logger for this class."""
         return get_logger(self.__class__.__module__)
+
+
+# Default logger for direct import
+logger = get_logger('telemetry')

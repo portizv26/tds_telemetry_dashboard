@@ -1,10 +1,38 @@
 # requirements.txt
 
-# Minimal requirements for data processing, AWS, OpenAI, Plotly, and Jupyter
-boto3==1.42.40
-openai==2.16.0
-pandas==3.0.0
-pyarrow==23.0.0
-openpyxl==3.1.5
-plotly==6.5.2
-jupyter==1.1.1
+# Data processing (Core dependencies)
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=12.0.0
+
+# Configuration
+pyyaml>=6.0
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# Logging
+python-json-logger>=2.0
+
+# Utilities
+python-dateutil>=2.8.0
+
+# AWS integration
+boto3>=1.42.40
+
+# Visualization (for notebooks and dashboard)
+plotly>=6.5.2
+
+# OpenAI integration (Phase 2)
+openai>=2.16.0
+
+# Excel support
+openpyxl>=3.1.5
+
+# Jupyter notebooks
+jupyter>=1.1.1
+
+# Progress bars
+tqdm>=4.65.0
+
+# Environment variables
+python-dotenv>=1.0.0
