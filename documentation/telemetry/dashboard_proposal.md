@@ -272,21 +272,24 @@ The telemetry dashboard is organized into **4 tabs**, each supporting a level of
 └────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────┐
-│  Signal Distribution Comparison (Boxplots)                 │
-│  [Multi-select signals: EngCoolTemp ☑  EngOilPres ☑ ]    │
+│  Signal Distribution by Week (Horizontal Boxplots)         │
+│  State Filter: [All ▼] [Operacional] [Ralenti] [Apagada] │
+│  Showing all signals for: Engine                           │
 │                                                            │
-│    EngCoolTemp                    EngOilPres              │
-│        │                              │                   │
-│    ────┼─────  P98                ────┼─────  P98         │
-│    ████████████                   ████▒▒▒▒▒▒             │
-│    ████████████  P95              ████████████  P95       │
-│    ████████████                   ████████████            │
-│    ████████████  Current Week     ████████████  Current   │
-│    ████████████                   ████████████            │
-│    ────────────  P5               ────────────  P5        │
-│    ────┼─────  P2                 ────┼─────  P2          │
+│  EngCoolTemp          EngOilPres          EngSpeed        │
 │                                                            │
-│  Legend: ▓ Baseline  ▒ Current Week                       │
+│  Week 50 (Current) ████████████──┼                        │
+│  Week 49           ██████████──┼                          │
+│  Week 48           ████████──┼                            │
+│  Week 47           █████████──┼                           │
+│  Week 46           ████████──┼                            │
+│  Week 45           ██████████──┼                          │
+│                    ┼ Mean                                  │
+│                                                            │
+│  • Current week highlighted in color (Red/Yellow/Green)   │
+│  • Historical weeks in gradient (recent → older)          │
+│  • Black dashed line shows overall mean                   │
+│  • Hover: Show Q1, Median, Q3, Min, Max for each week    │
 └────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────┐
@@ -320,16 +323,23 @@ The telemetry dashboard is organized into **4 tabs**, each supporting a level of
      - Row color by status
      - Gray out signals with weight=0.0 (insufficient data)
 
-3. **Boxplot Comparison** (Plotly Box)
-   - Multi-select signals to compare
-   - Each signal shows:
-     - **Historical baseline**: Box from P5 to P95, whiskers to P2/P98
-     - **Current week**: Overlayed box showing distribution of actual readings
+3. **Weekly Distribution Boxplots** (Plotly Box - Horizontal)
+   - By default, show **all signals** for the selected component
+   - Multiple facets/subplots (one per signal)
+   - Each signal shows historical weekly distributions:
+     - Last 5-8 weeks displayed as horizontal boxes
+     - Current evaluation week highlighted with status color
+     - Historical weeks in gradient color (recent → older)
+   - **State Filter** (Radio buttons or Dropdown):
+     - Filter: `All`, `Operacional`, `Ralenti`, `Apagada`
+     - Filters data shown in boxplots by `EstadoMaquina`
+   - Reference Line:
+     - Black dashed vertical line at overall mean across all weeks
    - Color scheme:
-     - Baseline: Light blue box
-     - Current week: Red (if Anormal), Orange (if Alerta), Green (if Normal)
-   - Annotations: P2, P5, P95, P98 threshold lines
-   - Hover: Show exact percentile values and observed min/max
+     - Current week: Red (Anormal), Orange (Alerta), Green (Normal)
+     - Historical weeks: Blue gradient (darker = more recent)
+   - Hover: Show week label, Q1, Median, Q3, Min, Max, Sample count
+   - Layout: Horizontal orientation for better week comparison
 
 4. **AI Recommendation Panel** (Phase 2)
    - Display LLM-generated maintenance recommendation
@@ -629,11 +639,16 @@ Fleet Overview (Tab 1)
 
 **Content**:
 - Signal name and current status
-- Time series plot with threshold bands
-- Boxplot comparison
-- Summary statistics table:
-  - Min/Max/Mean/Median observed
-  - Baseline percentiles
+- **Time series plot** with threshold bands (P2, P5, P95, P98)
+- **Weekly boxplot distribution**:
+  - Horizontal boxplots for last 8-12 weeks
+  - Current week highlighted by status color
+  - State filter available (All/Operacional/Ralenti/Apagada)
+  - Overall mean reference line
+- **Summary statistics table**:
+  - Current week: Min/Max/Mean/Median/Std
+  - Historical weeks: Mean trend, variability
+  - Baseline percentiles (P2, P5, P95, P98)
   - Anomaly percentage
   - Window score
 

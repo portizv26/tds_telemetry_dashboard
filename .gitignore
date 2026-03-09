@@ -60,3 +60,8 @@ htmlcov/
 # OS files
 Thumbs.db
 .DS_Store
+
+# Some MD files
+GPU_SETUP_GUIDE.md
+regression_results.json
+merge_data.xlsx
