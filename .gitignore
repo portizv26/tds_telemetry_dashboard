@@ -65,3 +65,7 @@ Thumbs.db
 GPU_SETUP_GUIDE.md
 regression_results.json
 merge_data.xlsx
+
+# Models
+models/
+configs/
