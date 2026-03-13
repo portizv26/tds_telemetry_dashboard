@@ -1,989 +1,2115 @@
 """
-Script to generate the health_index_improved.ipynb notebook.
-Each cell is defined as a dict with 'cell_type' and 'source'.
-Run this script to create/overwrite the notebook file.
+Notebook Generator for Health Index Improved Pipeline
+
+This script programmatically generates health_index_improved.ipynb with a modular,
+production-ready implementation of the telemetry health index modeling workflow.
 """
+
 import json
-import os
-
-# ── Notebook cell definitions ────────────────────────────────────────────────
-
-cells = []
-
-def md(source: str):
-    cells.append({"cell_type": "markdown", "source": source})
-
-def code(source: str):
-    cells.append({"cell_type": "code", "source": source})
+from pathlib import Path
+from typing import List, Dict
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 1 – Imports & Configuration
-# ═══════════════════════════════════════════════════════════════════════════════
-md("# Health Index – Improved Pipeline\n"
-   "End-to-end notebook: load → clean → impute → train (with Optuna) → predict → health index.\n\n"
-   "**Key improvements over v1:**\n"
-   "1. Categorical column imputation (forward-fill)\n"
-   "2. OneHotEncoded categorical features fed into the autoencoder\n"
-   "3. Prediction / inference function\n"
-   "4. Health-index computation (reconstruction error + coverage)\n"
-   "5. Optuna hyper-parameter optimisation (stored as JSON)")
+class NotebookCell:
+    """Represents a single notebook cell."""
+    
+    def __init__(self, language: str, content: str):
+        self.language = language
+        self.content = content.strip()
+    
+    def to_xml(self) -> str:
+        """Convert cell to XML format for notebook."""
+        return f'<VSCode.Cell language="{self.language}">\n{self.content}\n</VSCode.Cell>'
 
-md("## 1 · Imports & constants")
 
-code("""\
+class NotebookGenerator:
+    """Generates the improved health index notebook."""
+    
+    def __init__(self):
+        self.cells: List[NotebookCell] = []
+    
+    def add_markdown(self, content: str):
+        """Add a markdown cell."""
+        self.cells.append(NotebookCell("markdown", content))
+    
+    def add_code(self, content: str):
+        """Add a code cell."""
+        self.cells.append(NotebookCell("python", content))
+    
+    def generate(self, output_path: str):
+        """Generate the notebook file."""
+        xml_content = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        xml_content += '\n'.join(cell.to_xml() for cell in self.cells)
+        
+        Path(output_path).write_text(xml_content, encoding='utf-8')
+        print(f"✓ Generated notebook: {output_path}")
+
+
+def build_notebook() -> NotebookGenerator:
+    """Build the complete notebook structure."""
+    nb = NotebookGenerator()
+    
+    # =========================================================================
+    # SECTION 1: Header and Overview
+    # =========================================================================
+    nb.add_markdown("""# Health Index Improved Pipeline
+
+**Purpose**: Modular, scalable telemetry-based health index modeling with experiment tracking.
+
+**Key improvements over original**:
+- Optuna hyperparameter optimization
+- MLflow experiment tracking (JSON-based)
+- Modular function-based design
+- Multi-window inference support
+- Multi-component execution
+- Proper artifact management
+- SOLID principles compliance
+
+**Pipeline stages**:
+1. Data loading
+2. Outlier cleaning
+3. Cycle-based interpolation
+4. Labeling
+5. Feature preparation & scaling
+6. Model training with optimization
+7. Multi-window inference
+8. Health index computation
+9. Artifact persistence""")
+    
+    # =========================================================================
+    # SECTION 2: Imports and Configuration
+    # =========================================================================
+    nb.add_markdown("## 1. Imports and Configuration")
+    
+    nb.add_code("""# Standard libraries
 import os
 import json
-import pathlib
 import warnings
+from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple, Optional, Any
 
-import numpy as np
+# Data manipulation
 import pandas as pd
+import numpy as np
+
+# Visualization
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tqdm.auto import tqdm
 
+# Machine learning
 import tensorflow as tf
 from tensorflow.keras import layers, Model, mixed_precision
 from sklearn.preprocessing import RobustScaler, OneHotEncoder
 
+# Optimization and tracking
 import optuna
+import mlflow
+from mlflow.tracking import MlflowClient
 
-warnings.filterwarnings("ignore", category=FutureWarning)
-""")
+# Utilities
+import joblib
+from tqdm.auto import tqdm
 
-code("""\
-# ── Reproducibility seed ────────────────────────────────────────────
-SEED = 42
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
-
-# ── Paths (relative to notebooks/) ──────────────────────────────────
-ROOT = pathlib.Path("..").resolve()
-DATA_SILVER = ROOT / "data" / "telemetry" / "silver"
-DATA_GOLDEN = ROOT / "data" / "telemetry" / "golden"
-MODELS_DIR  = ROOT / "models"
-MAPPING_PATH = ROOT / "data" / "telemetry" / "component_signals_mapping.json"
-
-# ── Pipeline constants ──────────────────────────────────────────────
-CLIENT      = "cda"
-UNIT_COL    = "Unit"
-TIME_COL    = "Fecha"
-CAT_COLS    = ["EstadoMaquina", "EstadoCarga"]
-
-FREQ             = "1min"
-GAP_THRESHOLD    = pd.Timedelta("10min")
-MIN_DURATION     = pd.Timedelta("4h")
-MIN_COVERAGE     = 0.75
-INTERP_LIMIT     = 10
-
-WINDOW_SIZE      = 60          # 1 hour at 1-min frequency
-IMPUTE_FILL_VAL  = -10.0       # fill value for missing data after scaling
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 – GPU Setup
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 2 · GPU configuration")
-
-code("""\
-def configure_gpu() -> None:
-    \"\"\"Enable memory-growth and mixed-precision if a GPU is available.\"\"\"
-    print(f"TensorFlow {tf.__version__}")
-    gpus = tf.config.list_physical_devices("GPU")
+warnings.filterwarnings('ignore')
+sns.set_style('whitegrid')""")
+    
+    nb.add_markdown("### GPU Configuration")
+    
+    nb.add_code("""def configure_gpu():
+    \"\"\"Configure GPU settings for optimal performance.\"\"\"
+    print("TensorFlow version:", tf.__version__)
+    print("GPU Available:", tf.config.list_physical_devices('GPU'))
+    print("Built with CUDA:", tf.test.is_built_with_cuda())
+    
+    gpus = tf.config.list_physical_devices('GPU')
     if gpus:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        policy = mixed_precision.Policy("mixed_float16")
-        mixed_precision.set_global_policy(policy)
-        print(f"  GPU(s): {len(gpus)}  |  mixed-precision: {policy.name}")
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"✓ GPU memory growth enabled for {len(gpus)} GPU(s)")
+            
+            policy = mixed_precision.Policy('mixed_float16')
+            mixed_precision.set_global_policy(policy)
+            print(f"✓ Mixed precision enabled: {policy.name}")
+        except RuntimeError as e:
+            print(f"GPU configuration error: {e}")
     else:
-        print("  No GPU detected – using CPU")
+        print("⚠ No GPU detected - training will use CPU")
 
-configure_gpu()
-""")
+configure_gpu()""")
+    
+    nb.add_markdown("### Pipeline Configuration")
+    
+    nb.add_code("""class PipelineConfig:
+    \"\"\"Central configuration for the health index pipeline.\"\"\"
+    
+    # Column names
+    UNIT_COL = "Unit"
+    TIME_COL = "Fecha"
+    CAT_COLS = ["EstadoMaquina", "EstadoCarga"]
+    
+    # Data cleaning
+    FREQ = "1min"
+    GAP_THRESHOLD = pd.Timedelta("10min")
+    MIN_DURATION = pd.Timedelta("4h")
+    MIN_COVERAGE = 0.75
+    INTERP_LIMIT = 10
+    
+    # Labeling
+    PERCENTILE_LOW = 0.05
+    PERCENTILE_HIGH = 0.95
+    ANOMALY_THRESHOLD = 1.2  # ratio threshold for anomaly labeling
+    
+    # Model training
+    WINDOW_SIZE = 60  # 1 hour at 1-minute frequency
+    DROPOUT_RATE = 0.2
+    EARLY_STOPPING_PATIENCE = 5
+    
+    # Testing
+    WEEKS_TO_TEST = 6
+    
+    # Health index
+    HI_ALPHA = 1.0  # decay factor for health index calculation
+    HI_AGG_METHOD = "mean"  # aggregation method: mean, median
+    
+    # Paths
+    CLIENT = "cda"
+    BASE_DATA_PATH = Path("../data")
+    BASE_MODEL_PATH = Path("../models")
+    
+    @classmethod
+    def get_signal_margins(cls) -> Dict[str, Tuple[float, float]]:
+        \"\"\"Define valid ranges for each signal.\"\"\"
+        return {
+            # General
+            'GPSLat': (-30.4, -30.1),
+            'GPSLon': (-71.3, -70.9),
+            'GPSElevation': (400, 2000),
+            'GroundSpd': (0, 80),
+            'EngSpd': (0, 2500),
+            # Engine
+            "EngCoolTemp": (30, 120),
+            "RAftrclrTemp": (10, 100),
+            "EngOilPres": (150, 700),
+            "EngOilFltr": (1, 50),
+            "CnkcasePres": (-1.5, 1.5),
+            "RtLtExhTemp": (-10, 10),
+            "RtExhTemp": (150, 750),
+            "LtExhTemp": (150, 750),
+            # Transmission
+            "DiffLubePres": (0, 800),
+            "DiffTemp": (0, 150),
+            "TrnLubeTemp": (-5, 120),
+            "TCOutTemp": (30, 180),
+            # Brakes
+            "RtRBrkTemp": (20, 200),
+            "RtFBrkTemp": (20, 200),
+            "LtRBrkTemp": (20, 200),
+            "LtFBrkTemp": (20, 200),
+            # Direction
+            'StrgOilTemp': (-10, 150),
+        }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 – Data Loading
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 3 · Data loading")
-
-code("""\
-def load_parquet_folder(folder: pathlib.Path) -> pd.DataFrame:
-    \"\"\"Read every `.parquet` file inside *folder* and return a single DataFrame.\"\"\"
-    files = sorted(folder.glob("*.parquet"))
-    if not files:
-        raise FileNotFoundError(f"No parquet files in {folder}")
-    df = pd.concat([pd.read_parquet(f) for f in tqdm(files, desc="Loading")], ignore_index=True)
-    df.sort_values([UNIT_COL, TIME_COL], inplace=True)
-    df.drop_duplicates(subset=[UNIT_COL, TIME_COL], keep="first", inplace=True)
-    df.reset_index(drop=True, inplace=True)
-    print(f"Loaded {len(df)/1e6:.3f}M rows  |  {df[UNIT_COL].nunique()} units")
+config = PipelineConfig()
+print("✓ Configuration loaded")""")
+    
+    # =========================================================================
+    # SECTION 3: Data Loading
+    # =========================================================================
+    nb.add_markdown("## 2. Data Loading")
+    
+    nb.add_code("""def load_telemetry_data(
+    client: str = config.CLIENT,
+    data_type: str = "silver"
+) -> pd.DataFrame:
+    \"\"\"
+    Load telemetry data from parquet files.
+    
+    Args:
+        client: Client identifier (e.g., 'cda')
+        data_type: Data layer (silver, golden)
+    
+    Returns:
+        DataFrame with telemetry data
+    \"\"\"
+    file_path = config.BASE_DATA_PATH / f"telemetry/{data_type}/{client}/Telemetry_Wide_With_States"
+    
+    if not Path(file_path).exists():
+        # Try with .parquet extension
+        file_path = Path(str(file_path) + ".parquet")
+    
+    print(f"Loading data from: {file_path}")
+    df = pd.read_parquet(file_path)
+    
+    # Sort and remove duplicates
+    df.sort_values([config.UNIT_COL, config.TIME_COL], inplace=True)
+    df.drop_duplicates(subset=[config.UNIT_COL, config.TIME_COL], keep='first', inplace=True)
+    
+    # Drop problematic columns if they exist
+    drop_cols = ['Payload', 'EngOilFltr', 'AirFltr']
+    existing_drop_cols = [col for col in drop_cols if col in df.columns]
+    if existing_drop_cols:
+        df.drop(columns=existing_drop_cols, inplace=True)
+    
+    print(f"✓ Loaded {len(df):,} rows ({len(df)/1e6:.2f}M)")
+    print(f"✓ Units: {df[config.UNIT_COL].nunique()}")
+    print(f"✓ Time range: {df[config.TIME_COL].min()} to {df[config.TIME_COL].max()}")
+    
     return df
 
-def load_component_mapping(path: pathlib.Path) -> dict:
-    \"\"\"Load the component → signals JSON mapping.\"\"\"
-    with open(path, "r") as f:
-        return json.load(f)
-""")
 
-code("""\
-input_folder = DATA_SILVER / CLIENT / "Telemetry_Wide_With_States"
-df_raw = load_parquet_folder(input_folder)
-component_mapping = load_component_mapping(MAPPING_PATH)
-df_raw.head()
-""")
+def load_component_mapping(client: str = config.CLIENT) -> Dict:
+    \"\"\"
+    Load component-to-signals mapping configuration.
+    
+    Args:
+        client: Client identifier
+    
+    Returns:
+        Dictionary with component configuration
+    \"\"\"
+    mapping_path = config.BASE_DATA_PATH / "telemetry/component_signals_mapping.json"
+    
+    with open(mapping_path, 'r') as f:
+        mapping = json.load(f)
+    
+    print(f"✓ Loaded component mapping with {len(mapping['components'])} components")
+    return mapping""")
+    
+    # =========================================================================
+    # SECTION 4: Data Cleaning
+    # =========================================================================
+    nb.add_markdown("## 3. Data Cleaning")
+    
+    nb.add_code("""def clean_outliers(
+    df: pd.DataFrame,
+    margins: Dict[str, Tuple[float, float]]
+) -> pd.DataFrame:
+    \"\"\"
+    Replace values outside valid ranges with NaN.
+    
+    Args:
+        df: Input DataFrame
+        margins: Dictionary mapping column names to (min, max) tuples
+    
+    Returns:
+        Cleaned DataFrame
+    \"\"\"
+    df_clean = df.copy()
+    
+    for col, (lower, upper) in margins.items():
+        if col in df_clean.columns:
+            original_valid = df_clean[col].notna().sum()
+            df_clean[col] = df_clean[col].where(
+                (df_clean[col] >= lower) & (df_clean[col] <= upper),
+                other=pd.NA
+            )
+            new_valid = df_clean[col].notna().sum()
+            if original_valid != new_valid:
+                pct_removed = (original_valid - new_valid) / original_valid * 100
+                print(f"  {col}: removed {original_valid - new_valid:,} outliers ({pct_removed:.1f}%)")
+    
+    return df_clean
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4 – Data Cleaning
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 4 · Data cleaning (outlier removal)")
 
-code("""\
-MARGINS: Dict[str, Tuple[float, float]] = {
-    # General / GPS
-    "GPSLat"       : (-30.4, -30.1),
-    "GPSLon"       : (-71.3, -70.9),
-    "GPSElevation" : (400, 2000),
-    "GroundSpd"    : (0, 80),
-    "EngSpd"       : (0, 2500),
-    # Engine
-    "EngCoolTemp"  : (30, 120),
-    "RAftrclrTemp" : (10, 100),
-    "EngOilPres"   : (150, 700),
-    "CnkcasePres"  : (-1.5, 1.5),
-    "RtLtExhTemp"  : (-10, 10),
-    "RtExhTemp"    : (150, 750),
-    "LtExhTemp"    : (150, 750),
-    # Transmission
-    "DiffLubePres" : (0, 800),
-    "DiffTemp"     : (0, 150),
-    "TrnLubeTemp"  : (-5, 120),
-    "TCOutTemp"    : (30, 180),
-    # Brakes
-    "RtRBrkTemp"   : (20, 200),
-    "RtFBrkTemp"   : (20, 200),
-    "LtRBrkTemp"   : (20, 200),
-    "LtFBrkTemp"   : (20, 200),
-    # Steering
-    "StrgOilTemp"  : (-10, 150),
-}
+def drop_incomplete_rows(
+    df: pd.DataFrame,
+    signal_cols: List[str],
+    threshold_ratio: float = 0.5
+) -> pd.DataFrame:
+    \"\"\"
+    Drop rows with too many missing signals.
+    
+    Args:
+        df: Input DataFrame
+        signal_cols: List of signal columns to check
+        threshold_ratio: Minimum ratio of non-null signals required
+    
+    Returns:
+        Filtered DataFrame
+    \"\"\"
+    existing_cols = [col for col in signal_cols if col in df.columns]
+    min_valid = int(len(existing_cols) * threshold_ratio)
+    
+    initial_rows = len(df)
+    df_filtered = df.dropna(subset=existing_cols, thresh=min_valid).copy()
+    
+    # Fill categorical columns
+    df_filtered.fillna({col: 'ND' for col in config.CAT_COLS if col in df_filtered.columns}, inplace=True)
+    df_filtered.reset_index(drop=True, inplace=True)
+    
+    removed = initial_rows - len(df_filtered)
+    print(f"✓ Dropped {removed:,} incomplete rows ({removed/initial_rows*100:.1f}%)")
+    print(f"✓ Remaining: {len(df_filtered):,} rows")
+    
+    return df_filtered""")
+    
+    # =========================================================================
+    # SECTION 5: Cycle Creation
+    # =========================================================================
+    nb.add_markdown("## 4. Cycle Creation and Interpolation")
+    
+    nb.add_code("""def create_cycles(df: pd.DataFrame) -> pd.DataFrame:
+    \"\"\"
+    Identify operational cycles based on time gaps.
+    
+    A new cycle starts when:
+    - There's a gap larger than GAP_THRESHOLD between consecutive records
+    - OR it's the first record for a unit
+    
+    Args:
+        df: Input DataFrame with Unit and Fecha columns
+    
+    Returns:
+        DataFrame with cycle_id column added
+    \"\"\"
+    df_cycles = df.copy()
+    
+    # Calculate time differences within each unit
+    dt = df_cycles.groupby(config.UNIT_COL)[config.TIME_COL].diff()
+    
+    # Mark cycle boundaries
+    new_cycle = dt.isna() | (dt > config.GAP_THRESHOLD)
+    df_cycles["cycle_id"] = new_cycle.groupby(df_cycles[config.UNIT_COL]).cumsum().astype("int64")
+    
+    n_cycles = df_cycles.groupby(config.UNIT_COL)["cycle_id"].nunique().sum()
+    print(f"✓ Created {n_cycles:,} cycles across {df_cycles[config.UNIT_COL].nunique()} units")
+    
+    return df_cycles
 
-def clean_outliers(df_in: pd.DataFrame, margins: Dict[str, Tuple[float, float]]) -> pd.DataFrame:
-    \"\"\"Replace values outside *margins* with NaN.\"\"\"
-    df = df_in.copy()
-    for col, (lo, hi) in margins.items():
-        if col in df.columns:
-            df[col] = df[col].where((df[col] >= lo) & (df[col] <= hi), other=pd.NA)
-    return df
-
-def drop_sparse_rows(df: pd.DataFrame, num_cols: List[str], min_present_ratio: float = 0.5) -> pd.DataFrame:
-    \"\"\"Drop rows where fewer than *min_present_ratio* of numerical signals are present.\"\"\"
-    thresh = int(len(num_cols) * min_present_ratio)
-    df = df.dropna(subset=num_cols, thresh=thresh)
-    df.reset_index(drop=True, inplace=True)
-    return df
-""")
-
-code("""\
-num_cols = [c for c in MARGINS if c in df_raw.columns]
-df_clean = clean_outliers(df_raw, MARGINS)
-df_clean = drop_sparse_rows(df_clean, num_cols)
-# Remove columns not present in mapping
-df_clean.drop(columns=[c for c in ["Payload", "EngOilFltr", "AirFltr"] if c in df_clean.columns],
-              inplace=True, errors="ignore")
-print(f"After cleaning: {len(df_clean)/1e6:.3f}M rows")
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 5 – Cycle Detection & Imputation
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 5 · Cycle detection, numerical interpolation & categorical imputation")
-
-code("""\
-def assign_cycles(df: pd.DataFrame) -> pd.DataFrame:
-    \"\"\"Assign a *cycle_id* per unit based on temporal gaps > GAP_THRESHOLD.\"\"\"
-    df = df.copy()
-    dt = df.groupby(UNIT_COL)[TIME_COL].diff()
-    new_cycle = dt.isna() | (dt > GAP_THRESHOLD)
-    df["cycle_id"] = new_cycle.groupby(df[UNIT_COL]).cumsum().astype("int64")
-    return df
 
 def is_valid_cycle(cycle_df: pd.DataFrame) -> bool:
-    \"\"\"Return True if cycle duration >= MIN_DURATION and sample coverage >= MIN_COVERAGE.\"\"\"
-    duration = cycle_df[TIME_COL].iloc[-1] - cycle_df[TIME_COL].iloc[0]
-    freq_td = pd.to_timedelta(FREQ)
+    \"\"\"
+    Check if cycle meets minimum duration and coverage requirements.
+    
+    Args:
+        cycle_df: DataFrame for a single cycle
+    
+    Returns:
+        True if cycle is valid for analysis
+    \"\"\"
+    start = cycle_df[config.TIME_COL].iloc[0]
+    end = cycle_df[config.TIME_COL].iloc[-1]
+    duration = end - start
+    
+    freq_td = pd.to_timedelta(config.FREQ)
     expected_n = int(round(duration / freq_td)) + 1
     coverage = len(cycle_df) / expected_n if expected_n > 0 else 0.0
-    return (duration >= MIN_DURATION) and (coverage >= MIN_COVERAGE)
+    
+    return (duration >= config.MIN_DURATION) and (coverage >= config.MIN_COVERAGE)
 
-def impute_cycle(cycle_df: pd.DataFrame, num_cols: List[str]) -> pd.DataFrame:
-    \"\"\"Interpolate numerical columns (time-based) and forward-fill categoricals.\"\"\"
-    out = cycle_df.copy()
-    # ── Numerical interpolation ──
-    out = out.set_index(TIME_COL)
-    before_na = out[num_cols].isna()
-    out[num_cols] = out[num_cols].interpolate(method="time", limit=INTERP_LIMIT, limit_area="inside")
-    out["imputed_any"] = (before_na & ~out[num_cols].isna()).any(axis=1).astype("int8")
-    out = out.reset_index()
-    # ── Categorical forward-fill ──
-    for col in CAT_COLS:
-        if col in out.columns:
-            out[col] = out[col].ffill()
-    # Fill remaining NaN categoricals with defaults
-    out.fillna({"EstadoMaquina": "ND", "EstadoCarga": "Sin Carga"}, inplace=True)
-    return out
 
-def process_cycles(df: pd.DataFrame, num_cols: List[str]) -> pd.DataFrame:
-    \"\"\"Split into cycles, keep valid ones, impute, and concatenate.\"\"\"
-    df = assign_cycles(df)
-    cycles = []
-    for (_, _), cdf in tqdm(df.groupby([UNIT_COL, "cycle_id"], sort=False), desc="Processing cycles"):
-        if is_valid_cycle(cdf):
-            cycles.append(impute_cycle(cdf, num_cols))
-    if not cycles:
-        raise ValueError("No valid cycles found – check GAP_THRESHOLD / MIN_DURATION settings")
-    result = pd.concat(cycles, ignore_index=True)
-    print(f"Valid cycles: {result[[UNIT_COL, 'cycle_id']].drop_duplicates().shape[0]}  |  "
-          f"Rows: {len(result)/1e6:.3f}M")
-    return result
-""")
-
-code("""\
-df_processed = process_cycles(df_clean, num_cols)
-df_processed.head()
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 6 – Labelling (percentile-based)
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 6 · Cycle labelling (Normal / Anomalous)")
-
-code("""\
-def label_cycles(df: pd.DataFrame, num_cols: List[str], anomaly_ratio: float = 2.0) -> pd.DataFrame:
-    \"\"\"Label each (Unit, cycle_id) as Normal or Anomalous based on out-of-percentile ratio.\"\"\"
-    signal_cols = [c for c in num_cols if ("GPS" not in c) and ("Spd" not in c)]
-    percentiles = {c: df[c].quantile([0.05, 0.95]) for c in signal_cols}
-
-    out_cols = []
-    for col, pcts in percentiles.items():
-        ocol = f"{col}_out_range"
-        df[ocol] = ~df[col].between(pcts[0.05], pcts[0.95])
-        out_cols.append(ocol)
-
-    summary = df.groupby([UNIT_COL, "cycle_id"])[out_cols].sum()
-    totals  = df.groupby([UNIT_COL, "cycle_id"]).size().rename("total_rows")
-    summary["total_out_range"] = summary[out_cols].sum(axis=1)
-    summary = summary.merge(totals, left_index=True, right_index=True)
-    summary["total_ratio"] = summary["total_out_range"] / summary["total_rows"]
-    summary["Label"] = np.where(summary["total_ratio"] < anomaly_ratio, "Normal", "Anomalous")
-
-    df = df.merge(summary[["Label"]], left_on=[UNIT_COL, "cycle_id"], right_index=True)
-    df.drop(columns=out_cols, inplace=True)
-    return df
-""")
-
-code("""\
-df_labelled = label_cycles(df_processed.copy(), num_cols)
-print(df_labelled["Label"].value_counts())
-df_labelled.head()
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 7 – Save processed data
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 7 · Store processed data")
-
-code("""\
-def save_processed_data(df: pd.DataFrame, client: str) -> pathlib.Path:
-    \"\"\"Write processed data to silver layer as parquet.\"\"\"
-    out_dir = DATA_SILVER / client
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "processed_data.parquet"
-    df.to_parquet(path, index=False)
-    print(f"Saved processed data → {path}  ({len(df)/1e6:.3f}M rows)")
-    return path
-""")
-
-code("""\
-save_processed_data(df_labelled, CLIENT)
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 7b – Train / test split
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 7b · Train / test split (last 2 weeks for testing)")
-
-code("""\
-def split_train_test(
-    df: pd.DataFrame,
-    test_weeks: int = 2,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    \"\"\"Split by time: everything before the cutoff for training, the rest for testing.\"\"\"
-    cutoff = df[TIME_COL].max() - pd.Timedelta(weeks=test_weeks)
-    df_train = df[df[TIME_COL] < cutoff].copy()
-    df_test  = df[df[TIME_COL] >= cutoff].copy()
-    print(f"Train: {len(df_train):,} rows  ({df_train[TIME_COL].min()} → {df_train[TIME_COL].max()})")
-    print(f"Test:  {len(df_test):,} rows  ({df_test[TIME_COL].min()} → {df_test[TIME_COL].max()})")
-    return df_train, df_test
-""")
-
-code("""\
-df_train, df_test = split_train_test(df_labelled, test_weeks=2)
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 8 – Sequence preparation (with OneHot categoricals)
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 8 · Sequence preparation (numerical + OneHot-encoded categoricals)")
-
-code("""\
-def fit_encoders(
-    df: pd.DataFrame,
-    num_cols: List[str],
-    cat_cols: List[str],
-) -> Tuple[Dict[str, RobustScaler], OneHotEncoder]:
+def interpolate_cycle(
+    cycle_df: pd.DataFrame,
+    num_cols: List[str]
+) -> pd.DataFrame:
     \"\"\"
-    Fit one RobustScaler per unit (numerical cols) and one shared OneHotEncoder (categorical cols).
-    Scalers are fitted on numpy arrays to avoid feature-name warnings at transform time.
-    Returns (scalers_dict, ohe).
-    \"\"\"
-    scalers: Dict[str, RobustScaler] = {}
-    for unit in df[UNIT_COL].unique():
-        sc = RobustScaler()
-        sc.fit(df.loc[df[UNIT_COL] == unit, num_cols].values)
-        scalers[unit] = sc
-
-    ohe = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-    ohe.fit(df[cat_cols].values)
-    return scalers, ohe
-
-def build_sequences(
-    df: pd.DataFrame,
-    signal_cols: List[str],
-    cat_cols: List[str],
-    scalers: Dict[str, RobustScaler],
-    ohe: OneHotEncoder,
-    window_size: int,
-    label_filter: Optional[str] = "Normal",
-    hard_filling: bool = True,
-) -> np.ndarray:
-    \"\"\"
-    Create sliding-window sequences [n_sequences, window_size, n_features].
-    Numerical cols are scaled per-unit; categorical cols are one-hot encoded.
-    If *label_filter* is given only rows with that label are used.
-    If *hard_filling* is True, any remaining NaN values after scaling are filled with ffill() and bfill() within each cycle
-    \"\"\"
-    subset = df[df["Label"] == label_filter] if label_filter else df
-    if hard_filling:
-        subset = subset.sort_values([UNIT_COL, "cycle_id", TIME_COL])
-        subset[signal_cols] = subset.groupby([UNIT_COL, "cycle_id"])[signal_cols].ffill().bfill()
-    sequences = []
-    for unit in subset[UNIT_COL].unique():
-        unit_df = subset[subset[UNIT_COL] == unit]
-        sc = scalers[unit]
-        for cycle in unit_df["cycle_id"].unique():
-            cdf = unit_df[unit_df["cycle_id"] == cycle]
-            if len(cdf) < window_size * 2:
-                continue
-            num_scaled = sc.transform(cdf[signal_cols].values)
-            cat_encoded = ohe.transform(cdf[cat_cols].values)
-            combined = np.hstack([num_scaled, cat_encoded])
-            for i in range(len(combined) - window_size):
-                sequences.append(combined[i : i + window_size])
-    return np.array(sequences, dtype="float32")
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 9 – Model builder
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 9 · LSTM autoencoder builder")
-
-code("""\
-def build_lstm_autoencoder(
-    n_features: int,
-    sequence_length: int,
-    encoder_units: List[int] = [16, 8],
-    dropout_rate: float = 0.2,
-    learning_rate: float = 1e-3,
-) -> Tuple[Model, Model, Model]:
-    \"\"\"
-    Build an LSTM encoder-decoder with a flexible number of layers.
-
+    Interpolate missing values within a single cycle.
+    
+    Creates a complete time index at 1-minute frequency and interpolates
+    numeric signals using time-based interpolation.
+    
     Args:
-        encoder_units: list of neuron counts for each encoder LSTM layer
-                       (decoder mirrors in reverse).  e.g. [32, 16, 8]
-    Returns (autoencoder, encoder, decoder).
+        cycle_df: DataFrame for a single cycle
+        num_cols: List of numeric column names to interpolate
+    
+    Returns:
+        Interpolated DataFrame with complete time index
     \"\"\"
-    # ── Encoder ──
-    enc_in = layers.Input(shape=(sequence_length, n_features), name="enc_input")
-    x = enc_in
-    for i, units in enumerate(encoder_units):
-        return_seq = (i < len(encoder_units) - 1)  # last layer returns single vector
-        x = layers.LSTM(units, return_sequences=return_seq)(x)
-        x = layers.Dropout(dropout_rate)(x)
-    latent_dim = encoder_units[-1]
-    encoder = Model(enc_in, x, name="encoder")
-
-    # ── Decoder (mirror of encoder) ──
-    dec_in = layers.Input(shape=(latent_dim,), name="dec_input")
-    y = layers.RepeatVector(sequence_length)(dec_in)
-    for units in reversed(encoder_units):
-        y = layers.LSTM(units, return_sequences=True)(y)
-        y = layers.Dropout(dropout_rate)(y)
-    dec_out = layers.TimeDistributed(layers.Dense(n_features))(y)
-    decoder = Model(dec_in, dec_out, name="decoder")
-
-    # ── Autoencoder ──
-    ae_in = layers.Input(shape=(sequence_length, n_features), name="ae_input")
-    encoded = encoder(ae_in)
-    decoded = decoder(encoded)
-    autoencoder = Model(ae_in, decoded, name="autoencoder")
-    autoencoder.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-        loss="mse",
+    out = cycle_df.copy()
+    out = out.sort_values(config.TIME_COL).reset_index(drop=True)
+    
+    # Track original timestamps
+    original_timestamps = set(out[config.TIME_COL])
+    
+    # Build complete time index
+    full_time_index = pd.date_range(
+        start=out[config.TIME_COL].min(),
+        end=out[config.TIME_COL].max(),
+        freq=config.FREQ
     )
-    return autoencoder, encoder, decoder
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 10 – Optuna optimisation
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 10 · Hyper-parameter optimisation (Optuna)")
-
-code("""\
-def _suggest_encoder_units(trial: optuna.Trial) -> List[int]:
-    \"\"\"Suggest a variable-length list of descending LSTM layer sizes.\"\"\"
-    n_layers = trial.suggest_int("n_layers", 1, 4)
-    units = []
-    prev = None
-    for i in range(n_layers):
-        hi = prev if prev else 128
-        lo = max(4, hi // 4)
-        u = trial.suggest_int(f"enc_units_L{i}", lo, hi, step=2)
-        units.append(u)
-        prev = u
-    return units
-
-def create_optuna_objective(
-    X_train: np.ndarray,
-    n_features: int,
-    window_size: int,
-):
-    \"\"\"Return an Optuna objective closure for the autoencoder.\"\"\"
-
-    def objective(trial: optuna.Trial) -> float:
-        encoder_units = _suggest_encoder_units(trial)
-        dropout_rate  = trial.suggest_float("dropout_rate", 0.05, 0.4, step=0.025)
-        lr            = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
-        batch_size    = trial.suggest_categorical("batch_size", [16, 32, 64])
-
-        ae, _, _ = build_lstm_autoencoder(
-            n_features=n_features,
-            sequence_length=window_size,
-            encoder_units=encoder_units,
-            dropout_rate=dropout_rate,
-            learning_rate=lr,
-        )
-        history = ae.fit(
-            X_train, X_train,
-            epochs=30,
-            batch_size=batch_size,
-            validation_split=0.2,
-            callbacks=[tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True)],
-            verbose=0,
-        )
-        return min(history.history["val_loss"])
-
-    return objective
-
-def run_optuna_study(
-    X_train: np.ndarray,
-    n_features: int,
-    window_size: int,
-    component: str,
-    client: str,
-    n_trials: int = 20,
-) -> dict:
-    \"\"\"Run Optuna study in-memory and persist results as JSON. Returns best params.\"\"\"
-    study_name = f"{component}_{window_size}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-    # In-memory study (avoids Windows file-lock privilege errors)
-    study = optuna.create_study(
-        study_name=study_name,
-        direction="minimize",
+    
+    # Reindex to create missing timestamps
+    out = out.set_index(config.TIME_COL).reindex(full_time_index)
+    out.index.name = config.TIME_COL
+    
+    # Reconstruct metadata columns
+    if config.UNIT_COL in cycle_df.columns:
+        out[config.UNIT_COL] = cycle_df[config.UNIT_COL].iloc[0]
+    
+    if "cycle_id" in cycle_df.columns:
+        out["cycle_id"] = cycle_df["cycle_id"].iloc[0]
+    
+    # Forward-fill categorical columns
+    for c in config.CAT_COLS:
+        if c in cycle_df.columns:
+            out[c] = out[c].ffill().bfill()
+    
+    # Filter to existing numeric columns
+    valid_num_cols = [c for c in num_cols if c in out.columns]
+    
+    # Convert to numeric if needed
+    for c in valid_num_cols:
+        if out[c].dtype == "object" or pd.api.types.is_string_dtype(out[c]):
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+    
+    # Flag rows created by reindex
+    out["created_by_reindex"] = (~out.index.isin(original_timestamps)).astype("int8")
+    
+    # Save missing positions before interpolation
+    before_na = out[valid_num_cols].isna()
+    
+    # Interpolate numeric signals
+    out[valid_num_cols] = out[valid_num_cols].interpolate(
+        method="time",
+        limit=config.INTERP_LIMIT,
+        limit_area="inside",
     )
-    study.optimize(
-        create_optuna_objective(X_train, n_features, window_size),
-        n_trials=n_trials,
-        show_progress_bar=True,
-    )
+    
+    # Flag rows where values were imputed
+    out["imputed_any"] = (
+        (before_na & ~out[valid_num_cols].isna()).any(axis=1)
+    ).astype("int8")
+    
+    return out.reset_index()
 
-    # ── Persist all trials + best params as plain JSON ──
-    out_dir = MODELS_DIR / client / component
-    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Reconstruct encoder_units from best trial params
-    bp = study.best_params
-    n_layers = bp["n_layers"]
-    encoder_units = [bp[f"enc_units_L{i}"] for i in range(n_layers)]
-
-    best = {
-        "encoder_units": encoder_units,
-        "dropout_rate": bp["dropout_rate"],
-        "learning_rate": bp["learning_rate"],
-        "batch_size": bp["batch_size"],
-        "best_val_loss": study.best_value,
-        "study_name": study_name,
-    }
-
-    # Save best params
-    summary_path = out_dir / f"best_params_{study_name}.json"
-    with open(summary_path, "w") as f:
-        json.dump(best, f, indent=2)
-
-    # Save full trial history
-    trials_data = []
-    for t in study.trials:
-        n_l = t.params.get("n_layers", 1)
-        trials_data.append({
-            "number": t.number,
-            "value": t.value,
-            "params": t.params,
-            "encoder_units": [t.params.get(f"enc_units_L{i}") for i in range(n_l)],
-            "state": t.state.name,
-        })
-    trials_path = out_dir / f"optuna_trials_{study_name}.json"
-    with open(trials_path, "w") as f:
-        json.dump(trials_data, f, indent=2)
-
-    print(f"Best params → {summary_path}")
-    print(f"All trials  → {trials_path}")
-    return best
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 11 – Train component model
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 11 · Training loop (per component)")
-
-code("""\
-def save_model_artifacts(
-    model: Model,
-    scalers: Dict[str, RobustScaler],
-    ohe: OneHotEncoder,
-    best_params: dict,
-    signal_cols: List[str],
-    client: str,
-    component: str,
-) -> pathlib.Path:
-    \"\"\"Persist model, scalers, encoder, and metadata.\"\"\"
-    import pickle
-
-    out_dir = MODELS_DIR / client / component
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    model.save(out_dir / "model.keras")
-    with open(out_dir / "scalers.pkl", "wb") as f:
-        pickle.dump(scalers, f)
-    with open(out_dir / "ohe.pkl", "wb") as f:
-        pickle.dump(ohe, f)
-    metadata = {
-        "signal_cols": signal_cols,
-        "cat_cols": CAT_COLS,
-        "window_size": WINDOW_SIZE,
-        "best_params": best_params,
-        "trained_at": datetime.now().isoformat(),
-    }
-    with open(out_dir / "metadata.json", "w") as f:
-        json.dump(metadata, f, indent=2)
-    print(f"Artifacts saved → {out_dir}")
-    return out_dir
-
-def train_component_model(
+def process_all_cycles(
     df: pd.DataFrame,
-    component_mapping: dict,
-    client: str,
+    num_cols: List[str]
+) -> pd.DataFrame:
+    \"\"\"
+    Process all cycles: filter valid ones and interpolate.
+    
+    Args:
+        df: DataFrame with cycle_id column
+        num_cols: List of numeric columns to interpolate
+    
+    Returns:
+        DataFrame with interpolated cycles
+    \"\"\"
+    cycles = []
+    
+    for (unit, cycle_id), cycle_df in tqdm(
+        df.groupby([config.UNIT_COL, "cycle_id"], sort=False),
+        desc="Processing cycles"
+    ):
+        if is_valid_cycle(cycle_df):
+            interpolated = interpolate_cycle(cycle_df, num_cols)
+            cycles.append(interpolated)
+    
+    result = pd.concat(cycles, ignore_index=True) if cycles else df.head(0).copy()
+    
+    print(f"✓ Processed {len(cycles):,} valid cycles")
+    print(f"✓ Total rows after interpolation: {len(result):,}")
+    
+    return result""")
+    
+    # =========================================================================
+    # SECTION 6: Labeling
+    # =========================================================================
+    nb.add_markdown("## 5. Data Labeling")
+    
+    nb.add_code("""def label_cycles_by_percentiles(
+    df: pd.DataFrame,
+    signal_cols: List[str]
+) -> pd.DataFrame:
+    \"\"\"
+    Label cycles as Normal or Anomalous based on percentile analysis.
+    
+    For each signal, calculates P5 and P95 across all data, then counts
+    how many values per cycle fall outside this range. Cycles with high
+    ratios of out-of-range values are labeled Anomalous.
+    
+    Args:
+        df: DataFrame with cycle data
+        signal_cols: List of signal columns to analyze
+    
+    Returns:
+        DataFrame with 'Label' column added
+    \"\"\"
+    df_labeled = df.copy()
+    
+    # Filter to relevant signal columns (exclude GPS and speed columns for labeling)
+    label_cols = [
+        col for col in signal_cols 
+        if col in df.columns and 'GPS' not in col and 'Spd' not in col
+    ]
+    
+    # Calculate percentiles
+    percentile_dict = {
+        col: df[col].quantile([config.PERCENTILE_LOW, config. PERCENTILE_HIGH])
+        for col in label_cols
+    }
+    
+    # Flag out-of-range values
+    out_cols = []
+    for col in percentile_dict.keys():
+        out_col = f'{col}_out_range'
+        df_labeled[out_col] = ~df_labeled[col].between(
+            percentile_dict[col][config.PERCENTILE_LOW],
+            percentile_dict[col][config.PERCENTILE_HIGH]
+        )
+        out_cols.append(out_col)
+    
+    # Aggregate at cycle level
+    cycle_summary = df_labeled.groupby([config.UNIT_COL, 'cycle_id'])[out_cols].sum()
+    cycle_total = df_labeled.groupby([config.UNIT_COL, 'cycle_id']).size().rename('total_rows')
+    cycle_summary = cycle_summary.merge(cycle_total, left_index=True, right_index=True)
+    
+    cycle_summary['total_out_range'] = cycle_summary[out_cols].sum(axis=1)
+    cycle_summary['total_ratio'] = cycle_summary['total_out_range'] / cycle_summary['total_rows']
+    
+    # Label based on threshold
+    cycle_summary['Label'] = np.where(
+        cycle_summary['total_ratio'] < config.ANOMALY_THRESHOLD,
+        'Normal',
+        'Anomalous'
+    )
+    
+    # Merge labels back
+    df_labeled = df_labeled.merge(
+        cycle_summary[['Label']],
+        left_on=[config.UNIT_COL, 'cycle_id'],
+        right_index=True
+    )
+    
+    # Clean up temporary columns
+    df_labeled.drop(columns=out_cols, inplace=True)
+    
+    # Print statistics
+    label_counts = cycle_summary['Label'].value_counts()
+    print(f"✓ Labeling complete:")
+    print(f"  Normal cycles: {label_counts.get('Normal', 0):,}")
+    print(f"  Anomalous cycles: {label_counts.get('Anomalous', 0):,}")
+    
+    return df_labeled""")
+    
+    # =========================================================================
+    # SECTION 7: Feature Preparation and Scaling
+    # =========================================================================
+    nb.add_markdown("## 6. Feature Preparation and Scaling")
+    
+    nb.add_code("""def fit_scalers_per_unit(
+    df: pd.DataFrame,
+    signal_cols: List[str],
     component: str,
-    optimize: bool = True,
-    n_trials: int = 20,
+    client: str = config.CLIENT
+) -> Dict[str, Any]:
+    \"\"\"
+    Fit separate robust scalers for each unit's signals.
+    
+    Also fits a shared OneHotEncoder for categorical variables.
+    Scalers are trained only on Normal data.
+    
+    Args:
+        df: Training DataFrame
+        signal_cols: List of signal columns
+        component: Component name
+        client: Client identifier
+    
+    Returns:
+        Dictionary with 'signal' and 'categorical' scalers
+    \"\"\"
+    # Filter to Normal data only
+    df_normal = df[df['Label'] == 'Normal'].copy() if 'Label' in df.columns else df.copy()
+    
+    # Fit categorical encoder
+    cat_scaler = OneHotEncoder(handle_unknown='ignore', drop='first', sparse_output=False)
+    existing_cat_cols = [col for col in config.CAT_COLS if col in df.columns]
+    cat_scaler.fit(df_normal[existing_cat_cols])
+    
+    # Fit signal scalers per unit
+    signal_scalers = {}
+    for unit in df_normal[config.UNIT_COL].unique():
+        unit_data = df_normal[df_normal[config.UNIT_COL] == unit]
+        scaler = RobustScaler()
+        scaler.fit(unit_data[signal_cols])
+        signal_scalers[unit] = scaler
+    
+    scalers = {
+        'categorical': cat_scaler,
+        'signal': signal_scalers
+    }
+    
+    # Save scalers
+    scaler_dir = config.BASE_MODEL_PATH / client / component / "scalers"
+    scaler_dir.mkdir(parents=True, exist_ok=True)
+    
+    joblib.dump(cat_scaler, scaler_dir / "cat_scaler.pkl")
+    for unit, scaler in signal_scalers.items():
+        joblib.dump(scaler, scaler_dir / f"{unit}_signal_scaler.pkl")
+    
+    print(f"✓ Fitted scalers for {len(signal_scalers)} units")
+    print(f"✓ Categorical features: {len(cat_scaler.get_feature_names_out())}")
+    print(f"✓ Saved to: {scaler_dir}")
+    
+    return scalers
+
+
+def load_scalers(
+    df: pd.DataFrame,
+    component: str,
+    client: str = config.CLIENT
+) -> Dict[str, Any]:
+    \"\"\"
+    Load pre-fitted scalers from disk.
+    
+    Args:
+        df: DataFrame (used to identify units)
+        component: Component name
+        client: Client identifier
+    
+    Returns:
+        Dictionary with 'signal' and 'categorical' scalers
+    \"\"\"
+    scaler_dir = config.BASE_MODEL_PATH / client / component / "scalers"
+    
+    cat_scaler = joblib.load(scaler_dir / "cat_scaler.pkl")
+    
+    signal_scalers = {}
+    for unit in df[config.UNIT_COL].unique():
+        scaler_path = scaler_dir / f"{unit}_signal_scaler.pkl"
+        if scaler_path.exists():
+            signal_scalers[unit] = joblib.load(scaler_path)
+        else:
+            print(f"⚠ Warning: Scaler not found for unit {unit}")
+    
+    return {
+        'categorical': cat_scaler,
+        'signal': signal_scalers
+    }""")
+    
+    # =========================================================================
+    # SECTION 8: Window Generation
+    # =========================================================================
+    nb.add_markdown("## 7. Window Generation for Training")
+    
+    nb.add_code("""def create_training_sequences(
+    df: pd.DataFrame,
+    component: str,
+    signal_cols: List[str],
+    scalers: Dict[str, Any],
+    window_size: int = config.WINDOW_SIZE
+) -> Tuple[np.ndarray, np.ndarray]:
+    \"\"\"
+    Create sliding window sequences for training.
+    
+    Uses only Normal data. Scales signals per-unit, then creates overlapping
+    windows within each cycle.
+    
+    Args:
+        df: Training DataFrame
+        component: Component name
+        signal_cols: List of signal columns
+        scalers: Dictionary with fitted scalers
+        window_size: Number of timesteps per window
+    
+    Returns:
+        Tuple of (signal_sequences, categorical_sequences) as numpy arrays
+    \"\"\"
+    # Filter to Normal data
+    df_normal = df[df['Label'] == 'Normal'].copy()
+    
+    signal_sequences = []
+    categorical_sequences = []
+    
+    ohe = scalers['categorical']
+    cat_cols_encoded = list(ohe.get_feature_names_out())
+    existing_cat_cols = [col for col in config.CAT_COLS if col in df.columns]
+    
+    for unit in tqdm(df_normal[config.UNIT_COL].unique(), desc="Creating training windows"):
+        sc = scalers['signal'][unit]
+        unit_data = df_normal[df_normal[config.UNIT_COL] == unit].copy()
+        
+        # Fill missing and scale
+        unit_data[signal_cols] = unit_data[signal_cols].fillna(unit_data[signal_cols].median())
+        unit_data[signal_cols] = sc.transform(unit_data[signal_cols])
+        
+        # Encode categorical
+        unit_data[cat_cols_encoded] = ohe.transform(unit_data[existing_cat_cols])
+        
+        # Create windows per cycle
+        for cycle in unit_data['cycle_id'].unique():
+            cycle_data = unit_data[unit_data['cycle_id'] == cycle][signal_cols + cat_cols_encoded].values
+            
+            if cycle_data.shape[0] < window_size * 2:
+                continue
+            
+            # Sliding windows
+            for i in range(len(cycle_data) - window_size):
+                signal_sequences.append(cycle_data[i:i+window_size, :len(signal_cols)])
+                categorical_sequences.append(cycle_data[i:i+window_size, len(signal_cols):])
+    
+    signal_seq = np.array(signal_sequences)
+    cat_seq = np.array(categorical_sequences)
+    
+    print(f"✓ Created {len(signal_seq):,} training windows")
+    print(f"✓ Signal shape: {signal_seq.shape}")
+    print(f"✓ Categorical shape: {cat_seq.shape}")
+    
+    return signal_seq, cat_seq""")
+    
+    # =========================================================================
+    # SECTION 9: Model Definition
+    # =========================================================================
+    nb.add_markdown("## 8. Model Architecture")
+    
+    nb.add_code("""def build_lstm_autoencoder(
+    n_signals: int,
+    n_cat_features: int,
+    sequence_length: int,
+    encoder_units_1: int = 16,
+    encoder_units_2: int = 8,
+    dropout_rate: float = config.DROPOUT_RATE
 ) -> Model:
     \"\"\"
-    Full training pipeline for one component:
-      1. Select signals
-      2. Fit scalers & OHE
-      3. Fill missing categoricals (forward-fill) and impute numerical (ffill and bfill)
-      4. Build sequences
-      5. (optional) Optuna optimisation
-      6. Train final model with best params
-      7. Save artifacts
-    Returns the trained autoencoder.
-    \"\"\"
-    signal_cols = [c for c in component_mapping["components"][component]["signals"]
-                   if c in df.columns]
-
-    # ── Encoders ──
-    scalers, ohe = fit_encoders(df, signal_cols, CAT_COLS)
-    n_cat_features = len(ohe.get_feature_names_out())
-    n_features = len(signal_cols) + n_cat_features
-
-    # ── Sequences (Normal only) ──
+    Build LSTM autoencoder for multivariate telemetry.
     
-    X_train = build_sequences(df, signal_cols, CAT_COLS, scalers, ohe,
-                              window_size=WINDOW_SIZE, label_filter="Normal")
-    print(f"[{component}]  sequences: {X_train.shape}  |  features: {n_features}")
+    Architecture:
+    - Encoder: 2 LSTM layers with dropout
+    - Decoder: 2 LSTM layers with dropout + TimeDistributed Dense output
+    - Input: concatenated signals + categorical features
+    - Output: reconstructed signals only
+    
+    Args:
+        n_signals: Number of signal features
+        n_cat_features: Number of categorical features (after encoding)
+        sequence_length: Time steps in sequence
+        encoder_units_1: Units in first LSTM layer
+        encoder_units_2: Units in second LSTM layer
+        dropout_rate: Dropout rate
+    
+    Returns:
+        Compiled Keras Model
+    \"\"\"
+    # Encoder
+    encoder_inputs = layers.Input(shape=(sequence_length, n_signals + n_cat_features))
+    x = layers.LSTM(encoder_units_1, return_sequences=True)(encoder_inputs)
+    x = layers.Dropout(dropout_rate)(x)
+    encoded = layers.LSTM(encoder_units_2, return_sequences=False)(x)
+    
+    # Decoder
+    x = layers.RepeatVector(sequence_length)(encoded)
+    x = layers.LSTM(encoder_units_2, return_sequences=True)(x)
+    x = layers.Dropout(dropout_rate)(x)
+    x = layers.LSTM(encoder_units_1, return_sequences=True)(x)
+    decoded = layers.TimeDistributed(layers.Dense(n_signals))(x)
+    
+    # Full autoencoder
+    autoencoder = Model(encoder_inputs, decoded, name='autoencoder')
+    autoencoder.compile(optimizer='adam', loss='mse')
+    
+    return autoencoder""")
+    
+    # =========================================================================
+    # SECTION 10: Optuna Hyperparameter Optimization
+    # =========================================================================
+    nb.add_markdown("## 9. Hyperparameter Optimization with Optuna")
+    
+    nb.add_code("""def create_optuna_objective(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    n_signals: int,
+    n_cat_features: int,
+    sequence_length: int
+):
+    \"\"\"
+    Create Optuna objective function for hyperparameter optimization.
+    
+    Args:
+        X_train: Training input sequences
+        y_train: Training target sequences (signals only)
+        X_val: Validation input sequences
+        y_val: Validation target sequences
+        n_signals: Number of signal features
+        n_cat_features: Number of categorical features
+        sequence_length: Window size
+    
+    Returns:
+        Objective function for Optuna
+    \"\"\"
+    def objective(trial):
+        # Suggest hyperparameters
+        encoder_units_1 = trial.suggest_int('encoder_units_1', 8, 32, step=8)
+        encoder_units_2 = trial.suggest_int('encoder_units_2', 4, 16, step=4)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.4)
+        batch_size = trial.suggest_categorical('batch_size', [16, 32, 64])
+        learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
+        
+        # Build model
+        model = build_lstm_autoencoder(
+            n_signals=n_signals,
+            n_cat_features=n_cat_features,
+            sequence_length=sequence_length,
+            encoder_units_1=encoder_units_1,
+            encoder_units_2=encoder_units_2,
+            dropout_rate=dropout_rate
+        )
+        
+        # Compile with custom learning rate
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+            loss='mse'
+        )
+        
+        # Train
+        history = model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=20,
+            batch_size=batch_size,
+            verbose=0,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(
+                    patience=3,
+                    restore_best_weights=True,
+                    monitor='val_loss'
+                )
+            ]
+        )
+        
+        # Return best validation loss
+        return min(history.history['val_loss'])
+    
+    return objective
 
-    # ── Hyper-parameter search ──
+
+def optimize_hyperparameters(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_signals: int,
+    n_cat_features: int,
+    sequence_length: int,
+    component: str,
+    n_trials: int = 20
+) -> Dict[str, Any]:
+    \"\"\"
+    Run Optuna hyperparameter optimization.
+    
+    Args:
+        X_train: Training input sequences
+        y_train: Training target sequences
+        n_signals: Number of signal features
+        n_cat_features: Number of categorical features
+        sequence_length: Window size
+        component: Component name
+        n_trials: Number of optimization trials
+    
+    Returns:
+        Dictionary with best parameters
+    \"\"\"
+    # Split for validation
+    val_split = 0.2
+    split_idx = int(len(X_train) * (1 - val_split))
+    
+    X_train_opt = X_train[:split_idx]
+    y_train_opt = y_train[:split_idx]
+    X_val_opt = X_train[split_idx:]
+    y_val_opt = y_train[split_idx:]
+    
+    print(f"Optimization split: {len(X_train_opt):,} train, {len(X_val_opt):,} val")
+    
+    # Create study
+    study = optuna.create_study(
+        direction='minimize',
+        study_name=f"{component}_optimization"
+    )
+    
+    # Create objective
+    objective = create_optuna_objective(
+        X_train_opt, y_train_opt,
+        X_val_opt, y_val_opt,
+        n_signals, n_cat_features, sequence_length
+    )
+    
+    # Optimize
+    print(f"Starting Optuna optimization with {n_trials} trials...")
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+    
+    print(f"✓ Optimization complete")
+    print(f"  Best validation loss: {study.best_value:.6f}")
+    print(f"  Best parameters: {study.best_params}")
+    
+    return study.best_params""")
+    
+    # =========================================================================
+    # SECTION 11: MLflow Experiment Tracking
+    # =========================================================================
+    nb.add_markdown("## 10. MLflow Experiment Tracking")
+    
+    nb.add_code("""def setup_mlflow_tracking(
+    component: str,
+    client: str = config.CLIENT
+) -> str:
+    \"\"\"
+    Setup MLflow tracking with JSON backend.
+    
+    Args:
+        component: Component name
+        client: Client identifier
+    
+    Returns:
+        Experiment name
+    \"\"\"
+    # Create tracking directory
+    tracking_dir = config.BASE_MODEL_PATH / client / component / "mlflow"
+    tracking_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Set tracking URI to file system
+    mlflow.set_tracking_uri(f"file:///{tracking_dir.absolute()}")
+    
+    # Create experiment name with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_name = f"{component}_{config.WINDOW_SIZE}_{timestamp}"
+    
+    # Set experiment
+    mlflow.set_experiment(experiment_name)
+    
+    print(f"✓ MLflow tracking configured")
+    print(f"  Experiment: {experiment_name}")
+    print(f"  Location: {tracking_dir}")
+    
+    return experiment_name
+
+
+def log_training_run(
+    run_name: str,
+    params: Dict[str, Any],
+    metrics: Dict[str, float],
+    model: Model,
+    artifacts: Dict[str, Any] = None
+):
+    \"\"\"
+    Log a training run to MLflow.
+    
+    Args:
+        run_name: Name for the MLflow run
+        params: Dictionary of parameters to log
+        metrics: Dictionary of metrics to log
+        model: Trained Keras model
+        artifacts: Optional dictionary of additional artifacts
+    \"\"\"
+    with mlflow.start_run(run_name=run_name):
+        # Log parameters
+        mlflow.log_params(params)
+        
+        # Log metrics
+        mlflow.log_metrics(metrics)
+        
+        # Log model
+        mlflow.keras.log_model(model, "model")
+        
+        # Log additional artifacts
+        if artifacts:
+            for name, obj in artifacts.items():
+                if isinstance(obj, (dict, list)):
+                    # Save as JSON
+                    artifact_path = Path(mlflow.get_artifact_uri()) / f"{name}.json"
+                    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(artifact_path, 'w') as f:
+                        json.dump(obj, f, indent=2, default=str)
+                    mlflow.log_artifact(str(artifact_path))
+        
+        print(f"✓ Logged run: {run_name}")""")
+    
+    # =========================================================================
+    # SECTION 12: Model Training
+    # =========================================================================
+    nb.add_markdown("## 11. Model Training")
+    
+    nb.add_code("""def train_component_model(
+    df_train: pd.DataFrame,
+    component: str,
+    signal_cols: List[str],
+    client: str = config.CLIENT,
+    optimize: bool = True,
+    n_trials: int = 20
+) -> Tuple[Model, Dict[str, Any]]:
+    \"\"\"
+    Complete training pipeline for a single component.
+    
+    Includes:
+    - Scaler fitting
+    - Sequence creation
+    - Hyperparameter optimization (optional)
+    - Model training
+    - MLflow logging
+    - Artifact saving
+    
+    Args:
+        df_train: Training DataFrame
+        component: Component name
+        signal_cols: List of signal columns for this component
+        client: Client identifier
+        optimize: Whether to run Optuna optimization
+        n_trials: Number of Optuna trials
+    
+    Returns:
+        Tuple of (trained_model, training_info)
+    \"\"\"
+    print(f"\\n{'='*60}")
+    print(f"Training model for component: {component}")
+    print(f"{'='*60}\\n")
+    
+    # Setup MLflow
+    experiment_name = setup_mlflow_tracking(component, client)
+    
+    # Fit scalers
+    print("\\n[1/6] Fitting scalers...")
+    scalers = fit_scalers_per_unit(df_train, signal_cols, component, client)
+    
+    # Create training sequences
+    print("\\n[2/6] Creating training sequences...")
+    signal_seq, cat_seq = create_training_sequences(
+        df_train, component, signal_cols, scalers
+    )
+    
+    X_train = np.concatenate([signal_seq, cat_seq], axis=-1)
+    y_train = signal_seq  # Reconstruct signals only
+    
+    n_signals = len(signal_cols)
+    n_cat_features = cat_seq.shape[-1] if cat_seq.size > 0 else 0
+    
+    # Hyperparameter optimization
+    best_params = {}
     if optimize:
-        best_params = run_optuna_study(
-            X_train, n_features, WINDOW_SIZE, component, client, n_trials=n_trials,
+        print("\\n[3/6] Optimizing hyperparameters...")
+        best_params = optimize_hyperparameters(
+            X_train, y_train,
+            n_signals, n_cat_features,
+            config.WINDOW_SIZE,
+            component,
+            n_trials=n_trials
         )
     else:
-        best_params = {"encoder_units": [16, 8], "dropout_rate": 0.2, "learning_rate": 1e-3, "batch_size": 32}
-
-    # ── Final training ──
-    ae, encoder, decoder = build_lstm_autoencoder(
-        n_features=n_features,
-        sequence_length=WINDOW_SIZE,
-        encoder_units=best_params["encoder_units"],
-        dropout_rate=best_params["dropout_rate"],
-        learning_rate=best_params["learning_rate"],
-    )
-    ae.fit(
-        X_train, X_train,
-        epochs=50,
-        batch_size=best_params["batch_size"],
-        validation_split=0.2,
-        callbacks=[tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True)],
-    )
-
-    # ── Persist ──
-    save_model_artifacts(ae, scalers, ohe, best_params, signal_cols, client, component)
-    return ae
-""")
-
-code("""\
-# Train all components (using df_train only)
-trained_models = {}
-for comp_name in component_mapping["components"]:
-    print(f"\\n{'='*60}\\nTraining: {comp_name}\\n{'='*60}")
-    trained_models[comp_name] = train_component_model(
-        df_train, component_mapping, CLIENT, comp_name,
-        optimize=True, n_trials=20,
-    )
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 12 – Prediction / Inference
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 12 · Prediction / inference (hour-by-hour)")
-
-code("""\
-import pickle
-
-def load_model_artifacts(client: str, component: str) -> dict:
-    \"\"\"Load model and all supporting artifacts from disk.\"\"\"
-    base = MODELS_DIR / client / component
-    model = tf.keras.models.load_model(base / "model.keras")
-    with open(base / "scalers.pkl", "rb") as f:
-        scalers = pickle.load(f)
-    with open(base / "ohe.pkl", "rb") as f:
-        ohe = pickle.load(f)
-    with open(base / "metadata.json", "r") as f:
-        metadata = json.load(f)
-    return {"model": model, "scalers": scalers, "ohe": ohe, "metadata": metadata}
-
-def prepare_inference_window(
-    window_df: pd.DataFrame,
-    signal_cols: List[str],
-    cat_cols: List[str],
-    scaler: RobustScaler,
-    ohe: OneHotEncoder,
-    window_size: int,
-    num_fill: float = IMPUTE_FILL_VAL,
-) -> Tuple[np.ndarray, float]:
-    \"\"\"
-    Prepare a single window (1 unit, up to *window_size* rows) for the model.
-
-    Edge cases handled:
-      - Empty window (0 rows):  all features filled with unlikely values.
-      - Partial window (<window_size rows): existing rows are scaled/encoded
-        normally; missing rows are padded (numerical → *num_fill*, OHE → 0).
-
-    Returns:
-        X        : np.ndarray of shape (1, window_size, n_features)
-        coverage : fraction of rows present vs expected
-    \"\"\"
-    n_num = len(signal_cols)
-    n_cat = len(ohe.get_feature_names_out())
-    n_features = n_num + n_cat
-    actual_len = len(window_df)
-    coverage = actual_len / window_size
-
-    # Build a single padding row: numerical → num_fill, OHE → 0
-    pad_row = np.concatenate([
-        np.full(n_num, num_fill, dtype="float32"),
-        np.zeros(n_cat, dtype="float32"),
-    ])
-
-    if actual_len == 0:
-        X = np.tile(pad_row, (window_size, 1))[np.newaxis, :, :]
-        return X, 0.0
-
-    # Scale existing numerical rows & encode existing categorical rows
-    num_scaled  = scaler.transform(window_df[signal_cols].values)
-    cat_encoded = ohe.transform(window_df[cat_cols].values)
-    combined = np.hstack([num_scaled, cat_encoded]).astype("float32")
-
-    # Pad if shorter than window_size
-    if actual_len < window_size:
-        pad = np.tile(pad_row, (window_size - actual_len, 1))
-        combined = np.vstack([combined, pad])
-
-    return combined[np.newaxis, :window_size, :], coverage
-
-def predict_window(
-    window_df: pd.DataFrame,
-    model: Model,
-    scaler: RobustScaler,
-    ohe: OneHotEncoder,
-    signal_cols: List[str],
-    cat_cols: List[str],
-    window_size: int = WINDOW_SIZE,
-) -> dict:
-    \"\"\"
-    Run inference on a single window of data for 1 unit.
-
-    Args:
-        window_df: DataFrame with up to *window_size* rows for one unit.
-    Returns:
-        dict with reconstruction_error and coverage.
-    \"\"\"
-    X, coverage = prepare_inference_window(
-        window_df, signal_cols, cat_cols, scaler, ohe, window_size,
-    )
-    X_pred = model.predict(X, verbose=0)
-    mse = float(np.mean((X - X_pred) ** 2))
-    return {"reconstruction_error": mse, "coverage": coverage}
-
-def run_hourly_inference(
-    df: pd.DataFrame,
-    artifacts: dict,
-    window_size: int = WINDOW_SIZE,
-) -> pd.DataFrame:
-    \"\"\"
-    Inject data hour-by-hour and apply the model on each window.
-
-    For every unit the test period is split into aligned 1-hour blocks
-    (window_size rows at 1-min frequency).  Each block is fed to
-    *predict_window* — even if it is empty or partially filled.
-
-    Returns a DataFrame with one row per (unit, hour-window):
-        Unit, window_start, window_end, reconstruction_error, coverage
-    \"\"\"
-    model       = artifacts["model"]
-    scalers     = artifacts["scalers"]
-    ohe         = artifacts["ohe"]
-    meta        = artifacts["metadata"]
-    signal_cols = meta["signal_cols"]
-    cat_cols    = meta["cat_cols"]
-
-    records = []
-    for unit in tqdm(df[UNIT_COL].unique(), desc="Predicting"):
-        scaler = scalers.get(unit)
-        if scaler is None:
-            continue
-        udf = df[df[UNIT_COL] == unit].sort_values(TIME_COL)
-
-        # Build aligned hourly boundaries over the full test range
-        t_min = udf[TIME_COL].min().floor("h")
-        t_max = udf[TIME_COL].max().ceil("h")
-        hourly_starts = pd.date_range(t_min, t_max, freq="1h")
-
-        for h_start in hourly_starts:
-            h_end = h_start + pd.Timedelta(minutes=window_size)
-            window_df = udf[(udf[TIME_COL] >= h_start) & (udf[TIME_COL] < h_end)]
-
-            result = predict_window(
-                window_df, model, scaler, ohe,
-                signal_cols, cat_cols, window_size,
-            )
-            records.append({
-                UNIT_COL: unit,
-                "window_start": h_start,
-                "window_end": h_end,
-                **result,
-            })
-
-    result = pd.DataFrame(records)
-    print(f"Inference windows: {len(result)}")
-    return result
-""")
-
-code("""\
-# Run hour-by-hour inference on the test set for each component
-all_inferences = []
-for comp_name in component_mapping["components"]:
-    print(f"\\nInference: {comp_name}")
-    arts = load_model_artifacts(CLIENT, comp_name)
-    inf_df = run_hourly_inference(df_test, arts, window_size=WINDOW_SIZE)
-    inf_df["component"] = comp_name
-    all_inferences.append(inf_df)
-
-inferences_df = pd.concat(all_inferences, ignore_index=True)
-print(f"\\nTotal inference windows: {len(inferences_df)}")
-inferences_df.head()
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 13 – Health Index Computation
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 13 · Health index computation")
-
-code("""\
-def compute_health_index(
-    inferences_df: pd.DataFrame,
-    error_col: str = "reconstruction_error",
-    coverage_col: str = "coverage",
-    error_quantile: float = 0.95,
-) -> pd.DataFrame:
-    \"\"\"
-    Compute a health index per window.
-
-    health_index = (1 - normalised_error) * coverage
-
-    The error is normalised against the *error_quantile* of Normal-training errors
-    so that 1.0 = perfectly normal and 0.0 = highly anomalous.
-    \"\"\"
-    df = inferences_df.copy()
-
-    # Normalise error: clip at quantile ceiling, then scale to [0, 1]
-    ceiling = df[error_col].quantile(error_quantile)
-    df["error_norm"] = (df[error_col] / ceiling).clip(upper=1.0)
-    df["health_index"] = (1.0 - df["error_norm"]) * df[coverage_col]
-    df["health_index"] = df["health_index"].clip(0.0, 1.0)
-
-    return df
-""")
-
-code("""\
-health_df = compute_health_index(inferences_df)
-health_df.describe()
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 14 – Save inference & health index
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 14 · Store inferences & health index")
-
-code("""\
-def save_golden_outputs(
-    inferences_df: pd.DataFrame,
-    health_df: pd.DataFrame,
-    client: str,
-) -> None:
-    \"\"\"Write inference and health-index DataFrames to the golden layer.\"\"\"
-    out_dir = DATA_GOLDEN / client
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    inf_path = out_dir / "inferences.parquet"
-    inferences_df.to_parquet(inf_path, index=False)
-    print(f"Inferences → {inf_path}  ({len(inferences_df)} rows)")
-
-    hi_path = out_dir / "health_index.parquet"
-    health_df.to_parquet(hi_path, index=False)
-    print(f"Health index → {hi_path}  ({len(health_df)} rows)")
-""")
-
-code("""\
-save_golden_outputs(inferences_df, health_df, CLIENT)
-""")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 15 – Quick visualisation
-# ═══════════════════════════════════════════════════════════════════════════════
-md("## 15 · Quick visualisation")
-
-code("""\
-def plot_health_index_timeline(health_df: pd.DataFrame, unit: Optional[str] = None) -> None:
-    \"\"\"Plot health index over time, optionally filtered by unit.\"\"\"
-    df = health_df.copy()
-    if unit:
-        df = df[df[UNIT_COL] == unit]
-
-    fig, axes = plt.subplots(2, 1, figsize=(16, 8), sharex=True)
-
-    for comp in df["component"].unique():
-        cdf = df[df["component"] == comp].sort_values("window_start")
-        axes[0].plot(cdf["window_start"], cdf["health_index"], label=comp, alpha=0.7)
-        axes[1].plot(cdf["window_start"], cdf["reconstruction_error"], label=comp, alpha=0.7)
-
-    axes[0].set_ylabel("Health Index")
-    axes[0].set_title(f"Health Index  {'(unit: ' + unit + ')' if unit else '(all units)'}")
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
-
-    axes[1].set_ylabel("Reconstruction Error")
-    axes[1].set_xlabel("Time")
-    axes[1].legend()
-    axes[1].grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.show()
-""")
-
-code("""\
-sample_unit = health_df[UNIT_COL].unique()[0]
-plot_health_index_timeline(health_df, unit=sample_unit)
-""")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Build the .ipynb JSON
-# ═══════════════════════════════════════════════════════════════════════════════
-def build_notebook(cells_list: list) -> dict:
-    """Convert cell dicts to a valid nbformat-4 notebook dict."""
-    nb_cells = []
-    for c in cells_list:
-        source_lines = c["source"].split("\n")
-        # nbformat stores source as a list of lines (each ending with \n except last)
-        source_fmt = [line + "\n" for line in source_lines[:-1]]
-        if source_lines:
-            source_fmt.append(source_lines[-1])  # last line has no trailing \n
-
-        cell = {
-            "cell_type": c["cell_type"],
-            "metadata": {},
-            "source": source_fmt,
+        print("\\n[3/6] Skipping optimization, using default parameters")
+        best_params = {
+            'encoder_units_1': 16,
+            'encoder_units_2': 8,
+            'dropout_rate': config.DROPOUT_RATE,
+            'batch_size': 32,
+            'learning_rate': 0.001
         }
-        if c["cell_type"] == "code":
-            cell["execution_count"] = None
-            cell["outputs"] = []
-        nb_cells.append(cell)
-
-    return {
-        "nbformat": 4,
-        "nbformat_minor": 5,
-        "metadata": {
-            "kernelspec": {
-                "display_name": "Python 3",
-                "language": "python",
-                "name": "python3",
-            },
-            "language_info": {
-                "name": "python",
-                "version": "3.12.4",
-            },
-        },
-        "cells": nb_cells,
+    
+    # Build model with best parameters
+    print("\\n[4/6] Building model...")
+    model = build_lstm_autoencoder(
+        n_signals=n_signals,
+        n_cat_features=n_cat_features,
+        sequence_length=config.WINDOW_SIZE,
+        encoder_units_1=best_params['encoder_units_1'],
+        encoder_units_2=best_params['encoder_units_2'],
+        dropout_rate=best_params['dropout_rate']
+    )
+    
+    # Compile with optimized learning rate
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=best_params['learning_rate']),
+        loss='mse'
+    )
+    
+    print(f"✓ Model created with {model.count_params():,} parameters")
+    
+    # Train model
+    print("\\n[5/6] Training model...")
+    history = model.fit(
+        X_train, y_train,
+        epochs=50,
+        batch_size=best_params['batch_size'],
+        validation_split=0.2,
+        callbacks=[
+            tf.keras.callbacks.EarlyStopping(
+                patience=config.EARLY_STOPPING_PATIENCE,
+                restore_best_weights=True,
+                monitor='val_loss'
+            )
+        ],
+        verbose=1
+    )
+    
+    # Save model
+    print("\\n[6/6] Saving artifacts...")
+    model_dir = config.BASE_MODEL_PATH / client / component
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / "model.keras"
+    model.save(model_path)
+    print(f"✓ Model saved to: {model_path}")
+    
+    # Prepare training info
+    training_info = {
+        'component': component,
+        'n_signals': n_signals,
+        'signal_cols': signal_cols,
+        'n_cat_features': n_cat_features,
+        'window_size': config.WINDOW_SIZE,
+        'n_training_samples': len(X_train),
+        'best_params': best_params,
+        'final_train_loss': float(history.history['loss'][-1]),
+        'final_val_loss': float(history.history['val_loss'][-1]),
+        'experiment_name': experiment_name,
+        'timestamp': datetime.now().isoformat()
     }
+    
+    # Save training info
+    info_path = model_dir / "training_info.json"
+    with open(info_path, 'w') as f:
+        json.dump(training_info, f, indent=2)
+    print(f"✓ Training info saved to: {info_path}")
+    
+    # Log to MLflow
+    log_training_run(
+        run_name=f"{component}_final",
+        params={
+            **best_params,
+            'window_size': config.WINDOW_SIZE,
+            'n_signals': n_signals,
+            'n_cat_features': n_cat_features
+        },
+        metrics={
+            'final_train_loss': training_info['final_train_loss'],
+            'final_val_loss': training_info['final_val_loss']
+        },
+        model=model,
+        artifacts={
+            'training_info': training_info,
+            'history': history.history,
+            'signal_cols': signal_cols
+        }
+    )
+    
+    print(f"\\n✓ Training complete for {component}")
+    print(f"  Final validation loss: {training_info['final_val_loss']:.6f}")
+    
+    return model, training_info""")
+    
+    # =========================================================================
+    # SECTION 13: Single-Window Inference
+    # =========================================================================
+    nb.add_markdown("## 12. Single-Window Inference")
+    
+    nb.add_code("""def prepare_inference_window(
+    df: pd.DataFrame,
+    start_time: pd.Timestamp,
+    end_time: pd.Timestamp,
+    window_size: int = config.WINDOW_SIZE
+) -> Tuple[pd.DataFrame, List[str]]:
+    \"\"\"
+    Prepare data for inference on a single window.
+    
+    Creates a complete time index for the window and ensures each unit
+    has exactly window_size records.
+    
+    Args:
+        df: Input DataFrame
+        start_time: Window start time
+        end_time: Window end time
+        window_size: Number of timesteps
+    
+    Returns:
+        Tuple of (prepared_df, unit_list)
+    \"\"\"
+    out = []
+    unit_list = list(df[config.UNIT_COL].unique())
+    
+    for unit in unit_list:
+        unit_data = df[df[config.UNIT_COL] == unit].copy()
+        
+        # Create complete time index
+        full_time_index = pd.date_range(start=start_time, end=end_time, freq=config.FREQ)
+        unit_data = unit_data.set_index(config.TIME_COL).reindex(full_time_index).reset_index()
+        unit_data = unit_data.rename(columns={'index': config.TIME_COL})
+        unit_data[config.UNIT_COL] = unit
+        
+        # Keep only window_size records
+        out.append(unit_data.head(window_size))
+    
+    return pd.concat(out, ignore_index=True), unit_list
+
+
+def predict_single_window(
+    df: pd.DataFrame,
+    start_time: pd.Timestamp,
+    end_time: pd.Timestamp,
+    component: str,
+    signal_cols: List[str],
+    client: str = config.CLIENT
+) -> pd.DataFrame:
+    \"\"\"
+    Run inference on a single window of data.
+    
+    Args:
+        df: Input DataFrame
+        start_time: Window start time
+        end_time: Window end time
+        component: Component name
+        signal_cols: List of signal columns
+        client: Client identifier
+    
+    Returns:
+        DataFrame with predictions in original scale
+    \"\"\"
+    # Load model and scalers
+    model_path = config.BASE_MODEL_PATH / client / component / "model.keras"
+    model = tf.keras.models.load_model(model_path)
+    
+    scalers = load_scalers(df, component, client)
+    
+    # Prepare data
+    prepared_df, unit_list = prepare_inference_window(df, start_time, end_time)
+    
+    # Create sequences (inference mode)
+    ohe = scalers['categorical']
+    cat_cols_encoded = list(ohe.get_feature_names_out())
+    existing_cat_cols = [col for col in config.CAT_COLS if col in df.columns]
+    
+    signal_sequences = []
+    categorical_sequences = []
+    
+    for unit in unit_list:
+        sc = scalers['signal'][unit]
+        unit_data = prepared_df[prepared_df[config.UNIT_COL] == unit].copy()
+        
+        # Scale and fill
+        unit_data[signal_cols] = sc.transform(unit_data[signal_cols])
+        unit_data[signal_cols] = unit_data[signal_cols].fillna(-10)  # Flag missing values
+        
+        # Encode categorical
+        unit_data[cat_cols_encoded] = ohe.transform(unit_data[existing_cat_cols])
+        
+        # Create single window
+        cycle_data = unit_data[signal_cols + cat_cols_encoded].values
+        if cycle_data.shape[0] >= config.WINDOW_SIZE:
+            signal_sequences.append(cycle_data[:config.WINDOW_SIZE, :len(signal_cols)])
+            categorical_sequences.append(cycle_data[:config.WINDOW_SIZE, len(signal_cols):])
+    
+    # Predict
+    X = np.concatenate([
+        np.array(signal_sequences),
+        np.array(categorical_sequences)
+    ], axis=-1)
+    
+    predictions_scaled = model.predict(X, verbose=0)
+    
+    # Inverse transform
+    predictions_unscaled = []
+    for i, unit in enumerate(unit_list):
+        sc = scalers['signal'][unit]
+        pred_unscaled = sc.inverse_transform(predictions_scaled[i])
+        pred_df = pd.DataFrame(pred_unscaled, columns=signal_cols)
+        pred_df[config.UNIT_COL] = unit
+        pred_df[config.TIME_COL] = prepared_df[prepared_df[config.UNIT_COL] == unit][config.TIME_COL].values[:len(pred_df)]
+        predictions_unscaled.append(pred_df)
+    
+    return pd.concat(predictions_unscaled, ignore_index=True)""")
+    
+    # =========================================================================
+    # SECTION 14: Multi-Window Inference
+    # =========================================================================
+    nb.add_markdown("## 13. Multi-Window Inference for Extended Horizons")
+    
+    nb.add_code("""def predict_over_horizon(
+    df: pd.DataFrame,
+    component: str,
+    signal_cols: List[str],
+    client: str = config.CLIENT,
+    window_size: int = config.WINDOW_SIZE,
+    stride: Optional[int] = None
+) -> pd.DataFrame:
+    \"\"\"
+    Run inference over an extended time period using sliding windows.
+    
+    This function handles long inference horizons by breaking them into
+    multiple windows and concatenating results.
+    
+    Args:
+        df: Input DataFrame spanning the full inference period
+        component: Component name
+        signal_cols: List of signal columns
+        client: Client identifier
+        window_size: Size of each inference window in minutes
+        stride: Step size between windows (if None, uses window_size for no overlap)
+    
+    Returns:
+        DataFrame with predictions for the full horizon
+    \"\"\"
+    if stride is None:
+        stride = window_size  # No overlap by default
+    
+    print(f"\\nRunning multi-window inference for {component}")
+    print(f"  Window size: {window_size} minutes")
+    print(f"  Stride: {stride} minutes")
+    
+    # Get time range
+    min_time = df[config.TIME_COL].min()
+    max_time = df[config.TIME_COL].max()
+    total_duration = (max_time - min_time).total_seconds() / 60  # in minutes
+    
+    print(f"  Time range: {min_time} to {max_time}")
+    print(f"  Total duration: {total_duration:.0f} minutes ({total_duration/60:.1f} hours)")
+    
+    # Generate window boundaries
+    window_starts = []
+    current_time = min_time
+    
+    while current_time + pd.Timedelta(minutes=window_size) <= max_time:
+        window_starts.append(current_time)
+        current_time += pd.Timedelta(minutes=stride)
+    
+    print(f"  Number of windows: {len(window_starts)}")
+    
+    # Run inference on each window
+    all_predictions = []
+    
+    for start_time in tqdm(window_starts, desc="Processing windows"):
+        end_time = start_time + pd.Timedelta(minutes=window_size)
+        
+        # Filter data for this window
+        window_df = df[
+            (df[config.TIME_COL] >= start_time) &
+            (df[config.TIME_COL] < end_time)
+        ].copy()
+        
+        if len(window_df) == 0:
+            continue
+        
+        try:
+            # Predict
+            predictions = predict_single_window(
+                window_df, start_time, end_time,
+                component, signal_cols, client
+            )
+            all_predictions.append(predictions)
+        except Exception as e:
+            print(f"⚠ Warning: Failed to process window starting at {start_time}: {e}")
+            continue
+    
+    # Concatenate all predictions
+    if not all_predictions:
+        raise ValueError("No predictions were generated")
+    
+    result = pd.concat(all_predictions, ignore_index=True)
+    
+    # Remove duplicates if there was overlap
+    if stride < window_size:
+        result = result.drop_duplicates(subset=[config.UNIT_COL, config.TIME_COL], keep='first')
+        result = result.sort_values([config.UNIT_COL, config.TIME_COL]).reset_index(drop=True)
+    
+    print(f"✓ Generated {len(result):,} predictions across {len(window_starts)} windows")
+    
+    return result""")
+    
+    # =========================================================================
+    # SECTION 15: Health Index Computation
+    # =========================================================================
+    nb.add_markdown("## 14. Health Index Computation")
+    
+    nb.add_code("""def compute_error_statistics(
+    df_train: pd.DataFrame,
+    predictions_train: pd.DataFrame,
+    signal_cols: List[str]
+) -> Dict[str, Dict[str, float]]:
+    \"\"\"
+    Compute error statistics (P50, P95) from training data.
+    
+    These statistics are used to normalize reconstruction errors during
+    health index calculation.
+    
+    Args:
+        df_train: Original training data
+        predictions_train: Predicted values on training data
+        signal_cols: List of signal columns
+    
+    Returns:
+        Dictionary mapping signal names to their error percentiles
+    \"\"\"
+    # Merge original and predicted
+    merged = df_train.merge(
+        predictions_train,
+        on=[config.UNIT_COL, config.TIME_COL],
+        suffixes=('_orig', '_pred'),
+        how='inner'
+    )
+    
+    error_stats = {}
+    
+    for col in signal_cols:
+        orig_col = f'{col}_orig'
+        pred_col = f'{col}_pred'
+        
+        if orig_col in merged.columns and pred_col in merged.columns:
+            # Compute absolute errors
+            errors = (merged[orig_col] - merged[pred_col]).abs()
+            
+            # Calculate percentiles
+            p50 = errors.quantile(0.50)
+            p95 = errors.quantile(0.95)
+            
+            error_stats[col] = {
+                'p50': float(p50),
+                'p95': float(p95)
+            }
+    
+    print(f"✓ Computed error statistics for {len(error_stats)} signals")
+    
+    return error_stats
+
+
+def compute_health_index(
+    df_original: pd.DataFrame,
+    df_predicted: pd.DataFrame,
+    signal_cols: List[str],
+    error_stats: Dict[str, Dict[str, float]],
+    alpha: float = config.HI_ALPHA,
+    agg_method: str = config.HI_AGG_METHOD
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    \"\"\"
+    Compute health index from reconstruction errors.
+    
+    Process:
+    1. Merge original and predicted data
+    2. Compute per-signal absolute reconstruction error
+    3. Normalize each error using P50/P95 from error_stats
+    4. Aggregate normalized errors across signals at each timestamp
+    5. Convert to pointwise health index using exponential decay
+    6. Aggregate health index at unit level
+    
+    Args:
+        df_original: Original data
+        df_predicted: Predicted/reconstructed data
+        signal_cols: List of signal columns
+        error_stats: Dictionary with P50/P95 per signal
+        alpha: Decay factor for health index (higher = more sensitive)
+        agg_method: Temporal aggregation method ('mean' or 'median')
+    
+    Returns:
+        Tuple of (timestamp_level_df, unit_level_df)
+    \"\"\"
+    # Merge
+    merged = df_original.merge(
+        df_predicted,
+        on=[config.UNIT_COL, config.TIME_COL],
+        suffixes=('_orig', '_pred'),
+        how='inner'
+    )
+    
+    merged = merged.sort_values([config.UNIT_COL, config.TIME_COL]).reset_index(drop=True)
+    
+    norm_error_cols = []
+    raw_error_cols = []
+    
+    eps = 1e-8
+    
+    # Compute normalized errors per signal
+    for col in signal_cols:
+        orig_col = f'{col}_orig'
+        pred_col = f'{col}_pred'
+        err_col = f'{col}_recon_error'
+        norm_col = f'{col}_norm_error'
+        
+        if orig_col not in merged.columns or pred_col not in merged.columns:
+            continue
+        
+        if col not in error_stats:
+            print(f"⚠ Warning: No error stats for signal '{col}', skipping")
+            continue
+        
+        p50 = error_stats[col]['p50']
+        p95 = error_stats[col]['p95']
+        
+        if pd.isna(p50) or pd.isna(p95) or p95 <= p50:
+            print(f"⚠ Warning: Invalid percentiles for signal '{col}', skipping")
+            continue
+        
+        # Absolute reconstruction error
+        merged[err_col] = (merged[orig_col] - merged[pred_col]).abs()
+        
+        # Normalize relative to healthy distribution
+        merged[norm_col] = ((merged[err_col] - p50) / (p95 - p50 + eps)).clip(lower=0)
+        
+        raw_error_cols.append(err_col)
+        norm_error_cols.append(norm_col)
+    
+    # Aggregate across signals at each timestamp
+    merged['reconstruction_error_raw_mean'] = merged[raw_error_cols].mean(axis=1)
+    merged['reconstruction_error_norm_mean'] = merged[norm_error_cols].mean(axis=1)
+    merged['reconstruction_error_norm_rms'] = np.sqrt((merged[norm_error_cols] ** 2).mean(axis=1))
+    
+    # Use normalized mean as main anomaly score
+    merged['reconstruction_error_score'] = merged['reconstruction_error_norm_mean']
+    
+    # Convert to health index
+    merged['health_index_point'] = np.exp(-alpha * merged['reconstruction_error_score'])
+    
+    # Aggregate at unit level
+    if agg_method == 'mean':
+        unit_hi = merged.groupby(config.UNIT_COL, as_index=False).agg(
+            health_index=('health_index_point', 'mean'),
+            reconstruction_error=('reconstruction_error_score', 'mean'),
+            n_records=(config.TIME_COL, 'count'),
+            start_time=(config.TIME_COL, 'min'),
+            end_time=(config.TIME_COL, 'max')
+        )
+    elif agg_method == 'median':
+        unit_hi = merged.groupby(config.UNIT_COL, as_index=False).agg(
+            health_index=('health_index_point', 'median'),
+            reconstruction_error=('reconstruction_error_score', 'median'),
+            n_records=(config.TIME_COL, 'count'),
+            start_time=(config.TIME_COL, 'min'),
+            end_time=(config.TIME_COL, 'max')
+        )
+    else:
+        raise ValueError(f"Invalid agg_method: {agg_method}")
+    
+    print(f"✓ Health index computed for {len(unit_hi)} units")
+    print(f"  Mean HI: {unit_hi['health_index'].mean():.3f}")
+    print(f"  Std HI: {unit_hi['health_index'].std():.3f}")
+    
+    return merged, unit_hi""")
+    
+    # =========================================================================
+    # SECTION 16: Artifact Persistence
+    # =========================================================================
+    nb.add_markdown("## 15. Artifact Persistence")
+    
+    nb.add_code("""def save_processed_data(
+    df: pd.DataFrame,
+    client: str = config.CLIENT
+):
+    \"\"\"Save processed training data.\"\"\"
+    output_path = config.BASE_DATA_PATH / f"telemetry/silver/{client}/processed_data.parquet"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(output_path, index=False)
+    print(f"✓ Saved processed data to: {output_path}")
+
+
+def save_inferences(
+    df: pd.DataFrame,
+    component: str,
+    client: str = config.CLIENT
+):
+    \"\"\"Save model predictions.\"\"\"
+    output_path = config.BASE_DATA_PATH / f"telemetry/golden/{client}/{component}_inferences.parquet"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(output_path, index=False)
+    print(f"✓ Saved inferences to: {output_path}")
+
+
+def save_health_index(
+    df_timestamp: pd.DataFrame,
+    df_unit: pd.DataFrame,
+    component: str,
+    client: str = config.CLIENT
+):
+    \"\"\"Save health index results.\"\"\"
+    # Timestamp-level
+    timestamp_path = config.BASE_DATA_PATH / f"telemetry/golden/{client}/{component}_health_index_timestamp.parquet"
+    timestamp_path.parent.mkdir(parents=True, exist_ok=True)
+    df_timestamp.to_parquet(timestamp_path, index=False)
+    print(f"✓ Saved timestamp-level health index to: {timestamp_path}")
+    
+    # Unit-level
+    unit_path = config.BASE_DATA_PATH / f"telemetry/golden/{client}/{component}_health_index_unit.parquet"
+    df_unit.to_parquet(unit_path, index=False)
+    print(f"✓ Saved unit-level health index to: {unit_path}")
+
+
+def save_error_statistics(
+    error_stats: Dict[str, Dict[str, float]],
+    component: str,
+    client: str = config.CLIENT
+):
+    \"\"\"Save error statistics for future inference.\"\"\"
+    output_path = config.BASE_MODEL_PATH / client / component / "error_statistics.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_path, 'w') as f:
+        json.dump(error_stats, f, indent=2)
+    
+    print(f"✓ Saved error statistics to: {output_path}")
+
+
+def load_error_statistics(
+    component: str,
+    client: str = config.CLIENT
+) -> Dict[str, Dict[str, float]]:
+    \"\"\"Load error statistics from disk.\"\"\"
+    path = config.BASE_MODEL_PATH / client / component / "error_statistics.json"
+    
+    with open(path, 'r') as f:
+        return json.load(f)""")
+    
+    # =========================================================================
+    # SECTION 17: Single-Component Pipeline
+    # =========================================================================
+    nb.add_markdown("## 16. Single-Component Pipeline Execution")
+    
+    nb.add_code("""def run_component_pipeline(
+    component: str,
+    signal_cols: List[str],
+    df_train: pd.DataFrame,
+    df_test: pd.DataFrame,
+    client: str = config.CLIENT,
+    optimize: bool = True,
+    n_trials: int = 20
+) -> Dict[str, Any]:
+    \"\"\"
+    Execute complete pipeline for a single component.
+    
+    Steps:
+    1. Train model with optimization
+    2. Compute error statistics on training data
+    3. Run multi-window inference on test data
+    4. Compute health index
+    5. Save all artifacts
+    
+    Args:
+        component: Component name
+        signal_cols: List of signal columns for this component
+        df_train: Training DataFrame
+        df_test: Test DataFrame
+        client: Client identifier
+        optimize: Whether to run hyperparameter optimization
+        n_trials: Number of Optuna trials
+    
+    Returns:
+        Dictionary with pipeline results and metadata
+    \"\"\"
+    print(f"\\n{'#'*80}")
+    print(f"# COMPONENT PIPELINE: {component}")
+    print(f"{'#'*80}\\n")
+    
+    results = {
+        'component': component,
+        'status': 'started',
+        'start_time': datetime.now().isoformat()
+    }
+    
+    try:
+        # ========== TRAINING ==========
+        print("\\n[PHASE 1: TRAINING]")
+        model, training_info = train_component_model(
+            df_train=df_train,
+            component=component,
+            signal_cols=signal_cols,
+            client=client,
+            optimize=optimize,
+            n_trials=n_trials
+        )
+        
+        results['training_info'] = training_info
+        
+        # ========== ERROR STATISTICS ==========
+        print("\\n[PHASE 2: ERROR STATISTICS]")
+        print("Computing error statistics on training data...")
+        
+        # Run inference on a sample of training data to compute error stats
+        train_sample = df_train.sample(min(10000, len(df_train)), random_state=42)
+        train_predictions = predict_over_horizon(
+            df=train_sample,
+            component=component,
+            signal_cols=signal_cols,
+            client=client
+        )
+        
+        error_stats = compute_error_statistics(
+            df_train=train_sample,
+            predictions_train=train_predictions,
+            signal_cols=signal_cols
+        )
+        
+        save_error_statistics(error_stats, component, client)
+        results['error_stats'] = error_stats
+        
+        # ========== INFERENCE ==========
+        print("\\n[PHASE 3: INFERENCE]")
+        test_predictions = predict_over_horizon(
+            df=df_test,
+            component=component,
+            signal_cols=signal_cols,
+            client=client
+        )
+        
+        save_inferences(test_predictions, component, client)
+        results['n_predictions'] = len(test_predictions)
+        
+        # ========== HEALTH INDEX ==========
+        print("\\n[PHASE 4: HEALTH INDEX]")
+        hi_timestamp, hi_unit = compute_health_index(
+            df_original=df_test,
+            df_predicted=test_predictions,
+            signal_cols=signal_cols,
+            error_stats=error_stats
+        )
+        
+        save_health_index(hi_timestamp, hi_unit, component, client)
+        results['health_index_summary'] = {
+            'mean': float(hi_unit['health_index'].mean()),
+            'std': float(hi_unit['health_index'].std()),
+            'min': float(hi_unit['health_index'].min()),
+            'max': float(hi_unit['health_index'].max())
+        }
+        
+        # ========== COMPLETION ==========
+        results['status'] = 'completed'
+        results['end_time'] = datetime.now().isoformat()
+        
+        print(f"\\n{'='*60}")
+        print(f"✓ Component pipeline completed: {component}")
+        print(f"{'='*60}")
+        
+    except Exception as e:
+        results['status'] = 'failed'
+        results['error'] = str(e)
+        results['end_time'] = datetime.now().isoformat()
+        print(f"\\n✗ Component pipeline failed: {component}")
+        print(f"  Error: {e}")
+        raise
+    
+    return results""")
+    
+    # =========================================================================
+    # SECTION 18: Multi-Component Pipeline
+    # =========================================================================
+    nb.add_markdown("## 17. Multi-Component Pipeline Execution")
+    
+    nb.add_code("""def run_all_components_pipeline(
+    component_mapping: Dict,
+    df_train: pd.DataFrame,
+    df_test: pd.DataFrame,
+    client: str = config.CLIENT,
+    optimize: bool = True,
+    n_trials: int = 20,
+    components_subset: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    \"\"\"
+    Execute pipeline for all components.
+    
+    Args:
+        component_mapping: Component configuration dictionary
+        df_train: Training DataFrame
+        df_test: Test DataFrame
+        client: Client identifier
+        optimize: Whether to run hyperparameter optimization
+        n_trials: Number of Optuna trials per component
+        components_subset: Optional list of specific components to process
+    
+    Returns:
+        Dictionary with results for all components
+    \"\"\"
+    print(f"\\n{'#'*80}")
+    print(f"# MULTI-COMPONENT PIPELINE")
+    print(f"{'#'*80}\\n")
+    
+    components_to_process = components_subset or list(component_mapping['components'].keys())
+    
+    print(f"Components to process: {components_to_process}")
+    print(f"Optimization: {'Enabled' if optimize else 'Disabled'}")
+    print(f"Trials per component: {n_trials}\\n")
+    
+    all_results = {
+        'client': client,
+        'start_time': datetime.now().isoformat(),
+        'components': {},
+        'summary': {}
+    }
+    
+    successful = 0
+    failed = 0
+    
+    for component in components_to_process:
+        print(f"\\n{'='*80}")
+        print(f"Processing component {successful + failed + 1}/{len(components_to_process)}: {component}")
+        print(f"{'='*80}")
+        
+        try:
+            signal_cols = component_mapping['components'][component]['signals']
+            
+            # Filter to existing columns
+            signal_cols = [col for col in signal_cols if col in df_train.columns]
+            
+            if not signal_cols:
+                print(f"⚠ Warning: No valid signal columns for {component}, skipping")
+                continue
+            
+            # Run component pipeline
+            component_results = run_component_pipeline(
+                component=component,
+                signal_cols=signal_cols,
+                df_train=df_train,
+                df_test=df_test,
+                client=client,
+                optimize=optimize,
+                n_trials=n_trials
+            )
+            
+            all_results['components'][component] = component_results
+            successful += 1
+            
+        except Exception as e:
+            print(f"\\n✗ Failed to process component: {component}")
+            print(f"  Error: {e}")
+            all_results['components'][component] = {
+                'status': 'failed',
+                'error': str(e)
+            }
+            failed += 1
+            continue
+    
+    all_results['end_time'] = datetime.now().isoformat()
+    all_results['summary'] = {
+        'total_components': len(components_to_process),
+        'successful': successful,
+        'failed': failed,
+        'success_rate': successful / len(components_to_process) if components_to_process else 0
+    }
+    
+    # Save overall results
+    results_path = config.BASE_MODEL_PATH / client / "pipeline_results.json"
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(results_path, 'w') as f:
+        json.dump(all_results, f, indent=2, default=str)
+    
+    print(f"\\n{'#'*80}")
+    print(f"# PIPELINE COMPLETE")
+    print(f"{'#'*80}")
+    print(f"\\nSuccessful: {successful}/{len(components_to_process)}")
+    print(f"Failed: {failed}/{len(components_to_process)}")
+    print(f"\\nResults saved to: {results_path}")
+    
+    return all_results""")
+    
+    # =========================================================================
+    # SECTION 19: Main Execution
+    # =========================================================================
+    nb.add_markdown("## 18. Main Pipeline Execution")
+    
+    nb.add_code("""# Load data
+print("="*60)
+print("LOADING DATA")
+print("="*60)
+
+df_raw = load_telemetry_data(client=config.CLIENT)
+component_mapping = load_component_mapping(client=config.CLIENT)""")
+    
+    nb.add_code("""# Clean data
+print("\\n" + "="*60)
+print("CLEANING DATA")
+print("="*60)
+
+margins = config.get_signal_margins()
+df_cleaned = clean_outliers(df_raw, margins)
+
+num_cols = [col for col in margins.keys() if col in df_cleaned.columns]
+df_cleaned = drop_incomplete_rows(df_cleaned, num_cols)""")
+    
+    nb.add_code("""# Process cycles
+print("\\n" + "="*60)
+print("PROCESSING CYCLES")
+print("="*60)
+
+df_cycles = create_cycles(df_cleaned)
+df_interpolated = process_all_cycles(df_cycles, num_cols)""")
+    
+    nb.add_code("""# Label data
+print("\\n" + "="*60)
+print("LABELING DATA")
+print("="*60)
+
+df_labeled = label_cycles_by_percentiles(df_interpolated, num_cols)""")
+    
+    nb.add_code("""# Split train/test
+print("\\n" + "="*60)
+print("SPLITTING TRAIN/TEST")
+print("="*60)
+
+test_start_date = df_labeled[config.TIME_COL].max() - pd.Timedelta(weeks=config.WEEKS_TO_TEST)
+
+df_train = df_labeled[df_labeled[config.TIME_COL] < test_start_date].copy()
+df_test = df_labeled[df_labeled[config.TIME_COL] >= test_start_date].copy()
+
+print(f"✓ Training data: {len(df_train):,} rows")
+print(f"  Time range: {df_train[config.TIME_COL].min()} to {df_train[config.TIME_COL].max()}")
+print(f"✓ Test data: {len(df_test):,} rows")
+print(f"  Time range: {df_test[config.TIME_COL].min()} to {df_test[config.TIME_COL].max()}")
+
+# Save processed data
+save_processed_data(df_labeled, client=config.CLIENT)""")
+    
+    nb.add_markdown("""### Single Component Example
+
+Run pipeline for one component as a validation test:""")
+    
+    nb.add_code("""# Example: Run pipeline for a single component
+component_example = "Tren de fuerza"  # Change this to test different components
+
+if component_example in component_mapping['components']:
+    signal_cols = component_mapping['components'][component_example]['signals']
+    signal_cols = [col for col in signal_cols if col in df_train.columns]
+    
+    example_results = run_component_pipeline(
+        component=component_example,
+        signal_cols=signal_cols,
+        df_train=df_train,
+        df_test=df_test,
+        client=config.CLIENT,
+        optimize=True,
+        n_trials=10  # Use fewer trials for testing
+    )
+    
+    print(f"\\n{'='*60}")
+    print("EXAMPLE RESULTS")
+    print(f"{'='*60}")
+    print(json.dumps(example_results, indent=2, default=str))
+else:
+    print(f"Component '{component_example}' not found in mapping")""")
+    
+    nb.add_markdown("""### Full Multi-Component Execution
+
+Run the complete pipeline across all components:""")
+    
+    nb.add_code("""# Run full multi-component pipeline
+# WARNING: This will take significant time depending on data size and number of components
+
+RUN_FULL_PIPELINE = False  # Set to True to execute
+
+if RUN_FULL_PIPELINE:
+    all_results = run_all_components_pipeline(
+        component_mapping=component_mapping,
+        df_train=df_train,
+        df_test=df_test,
+        client=config.CLIENT,
+        optimize=True,
+        n_trials=20,
+        components_subset=None  # Set to list of component names to process specific ones
+    )
+    
+    print(f"\\n{'='*60}")
+    print("FINAL SUMMARY")
+    print(f"{'='*60}")
+    print(json.dumps(all_results['summary'], indent=2))
+else:
+    print("Skipping full pipeline execution. Set RUN_FULL_PIPELINE = True to run.")""")
+    
+    nb.add_markdown("""## 19. Results Visualization
+
+Load and visualize health index results:""")
+    
+    nb.add_code("""def plot_health_index_summary(component: str, client: str = config.CLIENT):
+    \"\"\"Plot health index summary for a component.\"\"\"
+    try:
+        # Load unit-level health index
+        hi_path = config.BASE_DATA_PATH / f"telemetry/golden/{client}/{component}_health_index_unit.parquet"
+        hi_df = pd.read_parquet(hi_path)
+        
+        # Create figure
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle(f'Health Index Summary: {component}', fontsize=16, fontweight='bold')
+        
+        # 1. Health index distribution
+        axes[0, 0].hist(hi_df['health_index'], bins=30, edgecolor='black', alpha=0.7)
+        axes[0, 0].axvline(hi_df['health_index'].mean(), color='red', linestyle='--', label=f'Mean: {hi_df["health_index"].mean():.3f}')
+        axes[0, 0].set_xlabel('Health Index')
+        axes[0, 0].set_ylabel('Frequency')
+        axes[0, 0].set_title('Health Index Distribution')
+        axes[0, 0].legend()
+        axes[0, 0].grid(alpha=0.3)
+        
+        # 2. Health index by unit
+        hi_df_sorted = hi_df.sort_values('health_index')
+        axes[0, 1].barh(range(len(hi_df_sorted)), hi_df_sorted['health_index'])
+        axes[0, 1].set_yticks(range(len(hi_df_sorted)))
+        axes[0, 1].set_yticklabels(hi_df_sorted[config.UNIT_COL], fontsize=8)
+        axes[0, 1].set_xlabel('Health Index')
+        axes[0, 1].set_title('Health Index by Unit')
+        axes[0, 1].grid(alpha=0.3, axis='x')
+        
+        # 3. Reconstruction error vs health index
+        axes[1, 0].scatter(hi_df['reconstruction_error'], hi_df['health_index'], alpha=0.6)
+        axes[1, 0].set_xlabel('Reconstruction Error')
+        axes[1, 0].set_ylabel('Health Index')
+        axes[1, 0].set_title('Reconstruction Error vs Health Index')
+        axes[1, 0].grid(alpha=0.3)
+        
+        # 4. Summary statistics
+        axes[1, 1].axis('off')
+        summary_text = f\"\"\"
+        Summary Statistics
+        {'='*40}
+        
+        Number of Units: {len(hi_df)}
+        
+        Health Index:
+          Mean:   {hi_df['health_index'].mean():.4f}
+          Median: {hi_df['health_index'].median():.4f}
+          Std:    {hi_df['health_index'].std():.4f}
+          Min:    {hi_df['health_index'].min():.4f}
+          Max:    {hi_df['health_index'].max():.4f}
+        
+        Reconstruction Error:
+          Mean:   {hi_df['reconstruction_error'].mean():.4f}
+          Median: {hi_df['reconstruction_error'].median():.4f}
+          Std:    {hi_df['reconstruction_error'].std():.4f}
+        
+        Total Records: {hi_df['n_records'].sum():,}
+        \"\"\"
+        axes[1, 1].text(0.1, 0.5, summary_text, fontsize=11, family='monospace',
+                        verticalalignment='center')
+        
+        plt.tight_layout()
+        plt.show()
+        
+        return hi_df
+        
+    except FileNotFoundError:
+        print(f"Health index file not found for component: {component}")
+        print("Run the pipeline first to generate results.")
+        return None
+
+
+# Example: Visualize results for a component
+if component_example in component_mapping['components']:
+    hi_results = plot_health_index_summary(component_example, config.CLIENT)""")
+    
+    nb.add_markdown("""## 20. Pipeline Complete
+
+This notebook implements a modular, scalable pipeline for telemetry-based health index modeling with:
+
+✓ **Modular design** - Clean separation of concerns with single-responsibility functions  
+✓ **Hyperparameter optimization** - Optuna integration for automated tuning  
+✓ **Experiment tracking** - MLflow logging with JSON backend  
+✓ **Multi-window inference** - Support for extended time horizons  
+✓ **Multi-component execution** - Batch processing across all components  
+✓ **Proper artifact management** - Organized storage of models, scalers, and results  
+
+**Next steps:**
+1. Adjust configuration parameters in `PipelineConfig` as needed
+2. Run single-component pipeline to validate
+3. Execute full multi-component pipeline
+4. Analyze health index results
+5. Iterate and refine based on domain knowledge""")
+    
+    return nb
 
 
 if __name__ == "__main__":
-    nb = build_notebook(cells)
-    out_path = os.path.join(os.path.dirname(__file__), "health_index_improved.ipynb")
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(nb, f, indent=1, ensure_ascii=False)
-    print(f"Notebook written → {out_path}  ({len(cells)} cells)")
+    # Generate notebook
+    notebook = build_notebook()
+    
+    output_path = Path(__file__).parent / "health_index_improved.ipynb"
+    notebook.generate(str(output_path))
+    
+    print(f"\n{'='*60}")
+    print("Notebook generation complete!")
+    print(f"{'='*60}\n")
+    print(f"Generated notebook: {output_path}")
+    print(f"Total cells: {len(notebook.cells)}")
+    print("\nTo use the notebook:")
+    print("1. Open health_index_improved.ipynb in VS Code")
+    print("2. Review and adjust PipelineConfig as needed")
+    print("3. Run cells sequentially or execute full pipeline")
+    print("\nNote: The notebook is designed for both single-component")
+    print("      testing and full multi-component execution.")
