@@ -25,7 +25,7 @@ class OptunaObjective:
     """Objective function for Optuna optimization."""
     
     def __init__(self, X_train: np.ndarray, X_val: np.ndarray, 
-                 n_features: int, max_epochs: int = 30, patience: int = 3):
+                 n_features: int, window_size: int, max_epochs: int = 30, patience: int = 3):
         """
         Initialize optimization objective.
         
@@ -33,12 +33,14 @@ class OptunaObjective:
             X_train: Training data
             X_val: Validation data
             n_features: Number of features
+            window_size: Fixed window size (not optimized)
             max_epochs: Maximum epochs for each trial
             patience: Early stopping patience
         """
         self.X_train = X_train
         self.X_val = X_val
         self.n_features = n_features
+        self.window_size = window_size
         self.max_epochs = max_epochs
         self.patience = patience
     
@@ -52,22 +54,16 @@ class OptunaObjective:
         Returns:
             Validation loss (to minimize)
         """
-        # Sample hyperparameters
-        window_size = trial.suggest_categorical("window_size", OPTUNA_SEARCH_SPACE["window_size"])
+        # Sample hyperparameters (window_size is fixed, not optimized)
         lstm_units_1 = trial.suggest_int("lstm_units_1", *OPTUNA_SEARCH_SPACE["lstm_units_1"])
         lstm_units_2 = trial.suggest_int("lstm_units_2", *OPTUNA_SEARCH_SPACE["lstm_units_2"])
         dropout_rate = trial.suggest_float("dropout_rate", *OPTUNA_SEARCH_SPACE["dropout_rate"])
         learning_rate = trial.suggest_float("learning_rate", *OPTUNA_SEARCH_SPACE["learning_rate"], log=True)
         batch_size = trial.suggest_categorical("batch_size", OPTUNA_SEARCH_SPACE["batch_size"])
         
-        # Adjust data to match window size
-        if self.X_train.shape[1] != window_size:
-            # This trial's window size doesn't match - skip
-            raise optuna.TrialPruned()
-        
-        # Build model
+        # Build model with fixed window_size
         model = build_lstm_autoencoder(
-            window_size=window_size,
+            window_size=self.window_size,
             n_features=self.n_features,
             lstm_units_1=lstm_units_1,
             lstm_units_2=lstm_units_2,
@@ -99,7 +95,7 @@ class OptunaObjective:
 
 
 def optimize_hyperparameters(X_train: np.ndarray, X_val: np.ndarray, 
-                             n_features: int, n_trials: int = None,
+                             n_features: int, window_size: int, n_trials: int = None,
                              timeout: int = None) -> Dict[str, Any]:
     """
     Optimize hyperparameters using Optuna.
@@ -108,6 +104,7 @@ def optimize_hyperparameters(X_train: np.ndarray, X_val: np.ndarray,
         X_train: Training data
         X_val: Validation data
         n_features: Number of features
+        window_size: Fixed window size (not optimized)
         n_trials: Number of Optuna trials (defaults to OPTUNA_N_TRIALS)
         timeout: Timeout in seconds (defaults to OPTUNA_TIMEOUT)
     
@@ -126,7 +123,7 @@ def optimize_hyperparameters(X_train: np.ndarray, X_val: np.ndarray,
     )
     
     # Optimize
-    objective = OptunaObjective(X_train, X_val, n_features)
+    objective = OptunaObjective(X_train, X_val, n_features, window_size)
     
     study.optimize(
         objective,

@@ -144,26 +144,32 @@ def run_component_pipeline(
     df_train_scaled = scaling.apply_categorical_encoder(df_train_scaled, cat_encoder, config.CAT_COLS)
     df_test_scaled = scaling.apply_categorical_encoder(df_test_scaled, cat_encoder, config.CAT_COLS)
     
-    # Feature columns after encoding
-    feature_cols = [col for col in df_train_scaled.columns 
-                   if col not in [config.UNIT_COL, config.TIME_COL, 'cycle_id', 'Label', 
-                                 'created_by_reindex', 'imputed_any']]
+    # Feature columns after encoding - ONLY numeric columns
+    exclude_cols = [config.UNIT_COL, config.TIME_COL, 'cycle_id', 'Label', 
+                   'created_by_reindex', 'imputed_any']
+    
+    # Filter to numeric columns only
+    feature_cols = [
+        col for col in df_train_scaled.columns 
+        if col not in exclude_cols and pd.api.types.is_numeric_dtype(df_train_scaled[col])
+    ]
     
     n_features = len(feature_cols)
     print(f"  Total features: {n_features}")
+    print(f"  Feature columns: {feature_cols[:5]}..." if len(feature_cols) > 5 else f"  Feature columns: {feature_cols}")
     
     # ========================================
     # 8. HYPERPARAMETER OPTIMIZATION
     # ========================================
+    # Window size is FIXED (not optimized)
+    window_size = config.DEFAULT_HYPERPARAMS['window_size']
+    
     if run_optimization:
-        print("\n[8/12] Running hyperparameter optimization...")
+        print(f"\n[8/12] Running hyperparameter optimization (window_size={window_size} fixed)...")
         
-        # Create temporary windows for optimization
-        # Use a default window size for creating training data
-        temp_window_size = config.DEFAULT_HYPERPARAMS['window_size']
-        
+        # Create windows for optimization with fixed window size
         X_train_temp, _ = windowing.create_windows(
-            df_train_scaled, feature_cols, temp_window_size, stride=5
+            df_train_scaled, feature_cols, window_size, stride=5
         )
         
         # Split for validation
@@ -171,27 +177,26 @@ def run_component_pipeline(
         X_train_opt = X_train_temp[:val_split]
         X_val_opt = X_train_temp[val_split:]
         
-        # Run Optuna
+        # Run Optuna with fixed window_size
         opt_results = optimization.optimize_hyperparameters(
-            X_train_opt, X_val_opt, n_features
+            X_train_opt, X_val_opt, n_features, window_size
         )
         
-        # Use best hyperparameters
+        # Use best hyperparameters and add fixed window_size
         best_params = opt_results['best_params']
+        best_params['window_size'] = window_size  # Add fixed window_size to results
         
         # Save optimization results
         optimization.save_optimization_results(opt_results, model_dir / "optimization_results.json")
     else:
-        print("\n[8/12] Skipping optimization, using default hyperparameters...")
+        print(f"\n[8/12] Skipping optimization, using default hyperparameters (window_size={window_size})...")
         best_params = config.DEFAULT_HYPERPARAMS.copy()
         opt_results = None
     
     # ========================================
     # 9. CREATE TRAINING WINDOWS
-# ========================================
+    # ========================================
     print("\n[9/12] Creating training windows...")
-    
-    window_size = best_params['window_size']
     
     X_train, meta_train = windowing.create_windows(
         df_train_scaled, feature_cols, window_size, stride=1

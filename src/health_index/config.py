@@ -91,19 +91,19 @@ DEFAULT_HYPERPARAMS = {
 # ========================
 # TRAINING PARAMETERS
 # ========================
-WEEKS_TO_TEST = 6
+WEEKS_TO_TEST = 8
 VALIDATION_SPLIT = 0.2
 
 # ========================
 # OPTUNA PARAMETERS
 # ========================
-OPTUNA_N_TRIALS = 20
+OPTUNA_N_TRIALS = 2
 OPTUNA_TIMEOUT = None  # seconds, None for no timeout
 OPTUNA_SAMPLER = "TPE"  # Tree-structured Parzen Estimator
 
 # Hyperparameter search space
+# Note: window_size is NOT optimized - it's fixed in DEFAULT_HYPERPARAMS
 OPTUNA_SEARCH_SPACE = {
-    "window_size": [30, 60, 120],  # 30 min, 1 hour, 2 hours
     "lstm_units_1": (8, 32),
     "lstm_units_2": (4, 16),
     "dropout_rate": (0.1, 0.5),

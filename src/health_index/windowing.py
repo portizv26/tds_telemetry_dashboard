@@ -31,6 +31,12 @@ def create_windows(df: pd.DataFrame, feature_cols: List[str], window_size: int,
     """
     df_work = df.copy()
     
+    # Validate that all feature columns are numeric
+    non_numeric_cols = [col for col in feature_cols if col in df_work.columns 
+                        and not pd.api.types.is_numeric_dtype(df_work[col])]
+    if non_numeric_cols:
+        raise ValueError(f"Non-numeric columns found in feature_cols: {non_numeric_cols}")
+    
     # Filter out synthetic/imputed data if requested
     if exclude_flags:
         if 'created_by_reindex' in df_work.columns:
@@ -50,8 +56,12 @@ def create_windows(df: pd.DataFrame, feature_cols: List[str], window_size: int,
     grouped = df_work.groupby(group_cols, sort=False)
     
     for group_keys, group_df in tqdm(grouped, desc="Creating windows"):
-        # Extract feature values
-        values = group_df[feature_cols].values
+        # Extract feature values and ensure numeric type
+        try:
+            values = group_df[feature_cols].values.astype(np.float32)
+        except (ValueError, TypeError) as e:
+            # Skip this group if conversion fails
+            continue
         
         # Skip if not enough data
         if len(values) < window_size:
@@ -122,7 +132,12 @@ def create_single_window_inference(df: pd.DataFrame, feature_cols: List[str],
             continue
         
         last_window = unit_data.iloc[-window_size:]
-        values = last_window[feature_cols].values
+        
+        # Extract and convert to numeric
+        try:
+            values = last_window[feature_cols].values.astype(np.float32)
+        except (ValueError, TypeError):
+            continue
         
         # Skip if NaN
         if np.isnan(values).any():
