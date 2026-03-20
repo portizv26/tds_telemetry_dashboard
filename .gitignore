@@ -69,3 +69,4 @@ merge_data.xlsx
 # Models
 models/
 configs/
+mlruns/
