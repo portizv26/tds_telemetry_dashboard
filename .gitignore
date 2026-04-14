@@ -70,3 +70,13 @@ merge_data.xlsx
 models/
 configs/
 mlruns/
+outputs/
+
+# nc file
+nc.py
+
+# Data deprecated
+dataDev/
+
+# any file thats has qsk on the name
+*qsk*

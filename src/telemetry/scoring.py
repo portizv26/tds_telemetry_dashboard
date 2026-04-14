@@ -12,8 +12,8 @@ from src.utils.logger import logger
 
 
 # Scoring thresholds
-WINDOW_SCORE_THRESHOLD_ALERT = 0.35
-WINDOW_SCORE_THRESHOLD_ANORMAL = 0.9
+WINDOW_SCORE_THRESHOLD_ALERT = 0.5
+WINDOW_SCORE_THRESHOLD_ANORMAL = 1.2
 
 
 def score_single_reading(value: float, percentiles: Dict[str, float]) -> int:
@@ -25,31 +25,31 @@ def score_single_reading(value: float, percentiles: Dict[str, float]) -> int:
     value : float
         Sensor reading value
     percentiles : dict
-        Baseline percentiles with keys 'P2', 'P5', 'P95', 'P98'
+        Baseline percentiles with keys 'P1', 'P5', 'P95', 'P99'
     
     Returns
     -------
     int
         Severity score:
         - 0: Normal (within P5-P95 range)
-        - 1: Alert (within P2-P5 or P95-P98 range)
-        - 3: Alarm (outside P2-P98 range)
+        - 1: Alert (within P1-P5 or P95-P99 range)
+        - 3: Alarm (outside P1-P99 range)
     """
     if pd.isna(value):
         return np.nan
     
-    p2, p5, p95, p98 = percentiles['P2'], percentiles['P5'], percentiles['P95'], percentiles['P98']
+    p1, p5, p95, p99 = percentiles['P1'], percentiles['P5'], percentiles['P95'], percentiles['P99']
     
     # Normal range
     if p5 <= value <= p95:
         return 0
     
     # Alert range
-    if (p2 <= value < p5) or (p95 < value <= p98):
+    if (p1 <= value < p5) or (p95 < value <= p99):
         return 1
     
     # Alarm range
-    if value < p2 or value > p98:
+    if value < p1 or value > p99:
         return 3
     
     return 0
@@ -64,7 +64,7 @@ def compute_window_score(values: pd.Series, percentiles: Dict[str, float]) -> Tu
     values : pd.Series
         Series of sensor readings for the evaluation window
     percentiles : dict
-        Baseline percentiles with keys 'P2', 'P5', 'P95', 'P98'
+        Baseline percentiles with keys 'P1', 'P5', 'P95', 'P99'
     
     Returns
     -------
@@ -148,7 +148,7 @@ def evaluate_signals(
         - anomaly_count
         - anomaly_percentage
         - max_score
-        - p2, p5, p95, p98 (baseline values used)
+        - p1, p5, p95, p99 (baseline values used)
     """
     logger.info("Starting signal evaluation")
     logger.info(f"  Units to evaluate: {current_df['Unit'].nunique()}")
@@ -204,10 +204,10 @@ def evaluate_signals(
             
             # Extract percentiles
             percentiles = {
-                'P2': baseline_record['P2'].values[0],
+                'P1': baseline_record['P1'].values[0],
                 'P5': baseline_record['P5'].values[0],
                 'P95': baseline_record['P95'].values[0],
-                'P98': baseline_record['P98'].values[0]
+                'P99': baseline_record['P99'].values[0]
             }
             
             # Compute window score
@@ -235,10 +235,10 @@ def evaluate_signals(
                 'anomaly_count': anomaly_count,
                 'anomaly_percentage': anomaly_percentage,
                 'max_score': max_score,
-                'p2': percentiles['P2'],
+                'p1': percentiles['P1'],
                 'p5': percentiles['P5'],
                 'p95': percentiles['P95'],
-                'p98': percentiles['P98']
+                'p99': percentiles['P99']
             }
             
             evaluations.append(evaluation_record)

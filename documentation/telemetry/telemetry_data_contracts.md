@@ -238,6 +238,7 @@ For each monitored sensor signal:
 | `baseline_version` | string | No | Baseline file identifier | Format: `YYYYMMDD` |
 | `total_signals_evaluated` | int32 | Yes | Total signals across all components | Range: ≥ 0 |
 | `total_signals_triggered` | int32 | Yes | Signals with non-Normal status | Range: 0 to total_signals_evaluated |
+| `ai_health_summary` | string | Yes | AI-generated executive health summary | Generated via OpenAI API |
 
 #### Component Details JSON Schema
 
@@ -288,7 +289,8 @@ The `component_details` column contains a JSON array of component evaluation obj
     "component_details": "[{...}]",  # JSON string
     "baseline_version": "20260201",
     "total_signals_evaluated": 48,
-    "total_signals_triggered": 3
+    "total_signals_triggered": 3,
+    "ai_health_summary": "El equipo presenta condición de alerta con 2 componentes afectados..."
 }
 ```
 
@@ -313,7 +315,8 @@ The `component_details` column contains a JSON array of component evaluation obj
     "component_details": "[]",  # Empty array
     "baseline_version": "20260201",
     "total_signals_evaluated": 0,
-    "total_signals_triggered": 0
+    "total_signals_triggered": 0,
+    "ai_health_summary": "No se detectaron anomalías en la evaluación semanal. El equipo opera dentro de parámetros normales según análisis de telemetría."
 }
 ```
 
@@ -380,7 +383,7 @@ fleet_trend = machine_df.groupby(['evaluation_year', 'evaluation_week']).agg({
 | `signals_evaluation` | string (JSON) | No | Per-signal scores and statuses | Valid JSON object |
 | `triggering_signals` | string (JSON) | No | Signals with non-Normal status | Valid JSON array |
 | `signal_weights` | string (JSON) | No | Per-signal data quality weights | Valid JSON object |
-| `ai_recommendation` | string | Yes | LLM-generated maintenance advice (Phase 2) | Reserved for future use |
+| `ai_recommendation` | string | Yes | AI-generated maintenance advice | Generated via OpenAI for non-Normal components |
 | `baseline_version` | string | No | Baseline file identifier | Format: `YYYYMMDD` |
 
 #### Signals Evaluation JSON Schema
@@ -421,7 +424,7 @@ fleet_trend = machine_df.groupby(['evaluation_year', 'evaluation_week']).agg({
     "signals_evaluation": "{...}",  # JSON string
     "triggering_signals": '["EngCoolTemp", "EngOilPres"]',  # JSON string
     "signal_weights": '{"EngCoolTemp": 1.0, "EngOilPres": 1.0}',  # JSON string
-    "ai_recommendation": null,
+    "ai_recommendation": "Se detectó temperatura anormal del refrigerante del motor con 45.2% de lecturas fuera del rango histórico...",
     "baseline_version": "20260201"
 }
 ```
@@ -845,6 +848,13 @@ When contract changes are proposed:
 ---
 
 ## 📝 Version History
+
+### Version 1.1.0 (April 2026)
+- Added `ai_health_summary` column to `machine_status.parquet`
+- Updated `ai_recommendation` column in `classified.parquet` (now actively used)
+- AI-generated maintenance comments using OpenAI API integration
+- Component-level technical insights for anomalies
+- Machine-level executive summaries for fleet management
 
 ### Version 1.0.0 (February 24, 2026)
 - Initial data contracts specification

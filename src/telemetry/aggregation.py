@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 
 from src.utils.logger import logger
+from src.services.ai_comment_service import get_ai_service
 
 
 # Aggregation configuration
@@ -20,8 +21,8 @@ SEVERITY_MAP = {
     'InsufficientData': 0.0
 }
 
-COMPONENT_SCORE_THRESHOLD_NORMAL = 0.15
-COMPONENT_SCORE_THRESHOLD_ANORMAL = 0.45
+COMPONENT_SCORE_THRESHOLD_NORMAL = 0.20
+COMPONENT_SCORE_THRESHOLD_ANORMAL = 0.60
 MIN_SIGNAL_COVERAGE = 0.5
 
 
@@ -176,6 +177,30 @@ def aggregate_to_components(
     if not component_df.empty:
         status_counts = component_df['component_status'].value_counts()
         logger.info(f"  Status distribution: {status_counts.to_dict()}")
+    
+    # Generate AI comments for non-normal components
+    if not component_df.empty:
+        logger.info("Generating AI comments for component anomalies...")
+        ai_service = get_ai_service()
+        
+        component_df['ai_recommendation'] = None
+        
+        for idx, row in component_df.iterrows():
+            if row['component_status'] in ['Alerta', 'Anormal']:
+                ai_comment = ai_service.generate_component_comment(
+                    unit_id=row['unit_id'],
+                    component=row['component'],
+                    component_status=row['component_status'],
+                    component_score=row['component_score'],
+                    triggering_signals=row['triggering_signals'],
+                    signals_evaluation=row['signals_evaluation'],
+                    evaluation_week=row['evaluation_week'],
+                    evaluation_year=row['evaluation_year']
+                )
+                component_df.at[idx, 'ai_recommendation'] = ai_comment
+        
+        comments_generated = component_df['ai_recommendation'].notna().sum()
+        logger.info(f"  Generated {comments_generated} AI component comments")
     
     return component_df
 
@@ -393,5 +418,27 @@ def aggregate_to_machines(
         logger.info(f"  Alerta: {status_counts.get('Alerta', 0)}")
         logger.info(f"  Anormal: {status_counts.get('Anormal', 0)}")
         logger.info(f"  InsufficientData: {status_counts.get('InsufficientData', 0)}")
+    
+    # Generate AI comments for machine-level health assessment
+    if not machine_df.empty:
+        logger.info("Generating AI comments for machine health assessment...")
+        ai_service = get_ai_service()
+        
+        machine_df['ai_health_summary'] = None
+        
+        for idx, row in machine_df.iterrows():
+            # Generate comment for all machines (normal gets standard message)
+            ai_comment = ai_service.generate_machine_comment(
+                unit_id=row['unit_id'],
+                overall_status=row['overall_status'],
+                machine_score=row['machine_score'],
+                component_details=row['component_details'],
+                evaluation_week=row['evaluation_week'],
+                evaluation_year=row['evaluation_year']
+            )
+            machine_df.at[idx, 'ai_health_summary'] = ai_comment
+        
+        comments_generated = machine_df['ai_health_summary'].notna().sum()
+        logger.info(f"  Generated {comments_generated} AI machine summaries")
     
     return machine_df

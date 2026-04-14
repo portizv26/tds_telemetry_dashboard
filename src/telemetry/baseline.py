@@ -14,7 +14,7 @@ from src.utils.logger import logger
 
 
 # Baseline configuration constants
-PERCENTILES = [0.02, 0.05, 0.95, 0.98]
+PERCENTILES = [0.01, 0.05, 0.95, 0.99]
 MIN_SAMPLES_FOR_BASELINE = 100
 
 
@@ -48,7 +48,7 @@ def compute_baseline_percentiles(
         - Unit: Unit identifier
         - Signal: Signal name
         - EstadoMaquina: Operational state
-        - P2, P5, P95, P98: Percentile values
+        - P1, P5, P95, P99: Percentile values
         - sample_count: Number of samples used
         - baseline_version: Date identifier
     
@@ -95,10 +95,10 @@ def compute_baseline_percentiles(
                             'Unit': unit,
                             'Signal': signal,
                             'EstadoMaquina': state,
-                            'P2': percentile_values[0],
+                            'P1': percentile_values[0],
                             'P5': percentile_values[1],
                             'P95': percentile_values[2],
-                            'P98': percentile_values[3],
+                            'P99': percentile_values[3],
                             'sample_count': len(values),
                             'baseline_version': baseline_date
                         }
@@ -121,10 +121,10 @@ def compute_baseline_percentiles(
                         'Unit': unit,
                         'Signal': signal,
                         'EstadoMaquina': 'All',  # Aggregate baseline
-                        'P2': percentile_values[0],
+                        'P1': percentile_values[0],
                         'P5': percentile_values[1],
                         'P95': percentile_values[2],
-                        'P98': percentile_values[3],
+                        'P99': percentile_values[3],
                         'sample_count': len(values_all_states),
                         'baseline_version': baseline_date
                     }

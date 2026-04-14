@@ -73,6 +73,7 @@ The telemetry analysis follows a **hierarchical evaluation chain** that aggregat
 │  • Apply component criticality weighting                    │
 │  • Generate component_score and component_status            │
 │  • Document supporting evidence (which signals triggered)   │
+│  • Generate AI maintenance comment for anomalies            │
 └─────────────────────────┬───────────────────────────────────┘
                           │
                           ▼
@@ -83,6 +84,7 @@ The telemetry analysis follows a **hierarchical evaluation chain** that aggregat
 │  • Determine overall_status (worst component drives status) │
 │  • Calculate priority_score for fleet ranking               │
 │  • Package component_details for drill-down                 │
+│  • Generate AI health summary for overall condition         │
 └─────────────────────────┬───────────────────────────────────┘
                           │
                           ▼
@@ -114,10 +116,10 @@ For each `(client, unit, signal)` triplet, compute historical percentile thresho
 
 $$
 \begin{aligned}
-P_2 &= \text{2nd percentile (extreme lower bound)} \\
+P_1 &= \text{1st percentile (extreme lower bound)} \\
 P_5 &= \text{5th percentile (alert lower bound)} \\
 P_{95} &= \text{95th percentile (alert upper bound)} \\
-P_{98} &= \text{98th percentile (extreme upper bound)}
+P_{99} &= \text{99th percentile (extreme upper bound)}
 \end{aligned}
 $$
 
@@ -137,15 +139,15 @@ $$
 \text{score}(x) = 
 \begin{cases}
 0 & \text{if } P_5 \leq x \leq P_{95} \quad \text{(Normal)} \\
-1 & \text{if } P_2 \leq x < P_5 \text{ or } P_{95} < x \leq P_{98} \quad \text{(Alert)} \\
-3 & \text{if } x < P_2 \text{ or } x > P_{98} \quad \text{(Alarm)}
+1 & \text{if } P_1 \leq x < P_5 \text{ or } P_{95} < x \leq P_{99} \quad \text{(Alert)} \\
+3 & \text{if } x < P_1 \text{ or } x > P_{99} \quad \text{(Alarm)}
 \end{cases}
 $$
 
 **Rationale**:
 - Score `0`: Value within central 90% of historical distribution
-- Score `1`: Value in outer tails (5-2% or 95-98%) - early warning
-- Score `3`: Value in extreme tails (<2% or >98%) - critical deviation
+- Score `1`: Value in outer tails (5-1% or 95-99%) - early warning
+- Score `3`: Value in extreme tails (<1% or >99%) - critical deviation
 
 #### Phase C: Aggregate Window Score
 
@@ -176,8 +178,8 @@ $$
 $$
 
 **MVP Thresholds**:
-- $T_1 = 0.2$ (more than 20% of readings deviate → Alert)
-- $T_2 = 0.4$ (more than 40% of readings deviate, or 13%+ in alarm zone → Abnormal)
+- $T_1 = 0.5$ (more than 50% of readings deviate or ~17% in alarm zone → Alert)
+- $T_2 = 1.2$ (more than 40% in alarm zone, or persistent severe deviations → Abnormal)
 
 **Threshold Tuning**: These values may be adjusted per signal type during calibration phase based on false positive/negative rates.
 
@@ -250,25 +252,26 @@ Apply thresholds to component score:
 $$
 \text{component\_status} = 
 \begin{cases}
-\text{Normal} & \text{if } \text{component\_score} < 0.15 \\
-\text{Alerta} & \text{if } 0.15 \leq \text{component\_score} < 0.45 \\
-\text{Anormal} & \text{if } \text{component\_score} \geq 0.45 \\
+\text{Normal} & \text{if } \text{component\_score} < 0.20 \\
+\text{Alerta} & \text{if } 0.20 \leq \text{component\_score} < 0.60 \\
+\text{Anormal} & \text{if } \text{component\_score} \geq 0.60 \\
 \text{InsufficientData} & \text{if } \text{component\_coverage} < 0.5 \text{ (optional)}
 \end{cases}
 $$
 
 **Threshold Rationale**:
-- **Normal (< 0.15)**: All signals normal, or minor isolated alerts
-- **Alerta (0.15-0.45)**: Multiple signals in alert, or single signal with elevated concerns
-- **Anormal (≥ 0.45)**: One or more signals anormal, or many signals alerting
+- **Normal (< 0.20)**: All signals normal, or minor isolated alerts
+- **Alerta (0.20-0.60)**: Multiple signals in alert, or single signal with elevated concerns
+- **Anormal (≥ 0.60)**: Multiple signals anormal, or persistent critical deviations
 
 **Example Scenarios**:
 - All 5 signals Normal → score = 0.0 → **Normal**
 - 4 signals Normal, 1 Alerta → score = 0.3/5 = 0.06 → **Normal**
 - 3 signals Normal, 2 Alerta → score = 0.6/5 = 0.12 → **Normal**
-- 2 signals Normal, 3 Alerta → score = 0.9/5 = 0.18 → **Alerta**
+- 2 signals Normal, 3 Alerta → score = 0.9/5 = 0.18 → **Normal**
 - 4 signals Normal, 1 Anormal → score = 1.0/5 = 0.20 → **Alerta**
 - 3 signals Normal, 1 Alerta, 1 Anormal → score = 1.3/5 = 0.26 → **Alerta**
+- 1 signal Normal, 1 Alerta, 3 Anormal → score = 3.3/5 = 0.66 → **Anormal**
 - 2 signals Alerta, 3 Anormal → score = (0.6 + 3.0)/5 = 0.72 → **Anormal**
 
 #### 6. Supporting Evidence
@@ -279,6 +282,34 @@ Track which signals triggered the component status:
 - `signal_statuses`: Dict of {signal_name: status}
 - `signal_weights`: Dict of {signal_name: weight} (data quality indicator)
 - `component_coverage`: Fraction of signals with sufficient data
+- `ai_recommendation`: AI-generated maintenance comment (when status ≠ Normal)
+
+#### 7. AI-Generated Maintenance Comments
+
+For components with non-normal status (Alerta or Anormal), an AI-powered expert comment is generated using OpenAI API:
+
+**AI Expert Role**: Maintenance specialist for mining haul trucks with 20+ years of experience
+
+**Context Provided to AI**:
+- Analysis methodology (weekly percentile-based anomaly detection)
+- Component status and severity score
+- List of triggering signals with their evaluation details
+- Historical baseline percentiles used
+
+**AI Comment Objectives**:
+1. Explain what abnormal condition was detected
+2. Indicate possible root causes for the deviation
+3. Describe operational risks if not addressed promptly
+
+**Comment Format**: 2-3 technical sentences in Spanish, suitable for maintenance personnel
+
+**Example AI Comment**:
+```
+Se detectó temperatura anormal del refrigerante del motor (EngCoolTemp) con 45.2% de lecturas 
+fuera del rango histórico P1-P99. Esto puede indicar obstrucción en el sistema de enfriamiento, 
+falla de termostato, o nivel bajo de refrigerante. Si no se atiende, existe riesgo de sobrecalentamiento 
+del motor que puede causar daño severo a componentes internos y paradas no programadas.
+```
 
 ---
 
@@ -326,6 +357,34 @@ $$
 Where:
 - $N_{\text{anormal}}$ = count of components with Anormal status
 - $N_{\text{alerta}}$ = count of components with Alerta status
+
+#### 4. AI-Generated Health Summary
+
+For each machine, an AI-powered executive summary is generated based on overall condition:
+
+**Normal Status Machines**:
+- Standard message: "No se detectaron anomalías en la evaluación semanal. El equipo opera dentro de parámetros normales según análisis de telemetría."
+
+**Non-Normal Status Machines**:
+Generated summary includes:
+1. General equipment condition assessment
+2. Critical affected components and their primary signals
+3. Operational risks if not intervened
+4. Suggested maintenance priority level
+
+**AI Context**:
+- Overall status and machine score
+- List of problematic components with their triggering signals
+- Evaluation period information
+
+**Example AI Summary** (Anormal machine):
+```
+El equipo presenta condición crítica con 3 componentes anormales detectados en la semana 8/2026. 
+El Motor muestra temperatura de refrigerante elevada (EngCoolTemp) y presión de aceite baja (EngOilPres), 
+la Transmisión registra temperatura de lubricante fuera de rango (TrnLubeTemp), y los Frenos presentan 
+temperaturas excesivas bilaterales. Estos patrones indican alto riesgo de falla catastrófica si se 
+mantiene operación sin intervención. Se recomienda inspección inmediata y evaluación de parada programada.
+```
 
 ---
 
@@ -381,7 +440,7 @@ data/telemetry/golden/{client}/baselines/
 
 **Schema**: `baseline_YYYYMMDD.parquet`
 ```
-unit_id | signal | state | p2 | p5 | p95 | p98 | sample_count | training_start | training_end
+unit_id | signal | state | p1 | p5 | p95 | p99 | sample_count | training_start | training_end
 ```
 
 ---
@@ -494,7 +553,7 @@ unit_id | signal | state | p2 | p5 | p95 | p98 | sample_count | training_start |
             "window_score": 1.2,
             "severity": 1.0,  # Mapped severity
             "weight": 1.0,  # Full weight (sufficient data)
-            "baseline": {"p2": 75, "p5": 78, "p95": 95, "p98": 98},
+            "baseline": {"p1": 70, "p5": 78, "p95": 95, "p99": 105},
             "observed_range": [92, 102],
             "anomaly_percentage": 45.2
         },
@@ -517,6 +576,39 @@ unit_id | signal | state | p2 | p5 | p95 | p98 | sample_count | training_start |
 
 ## 🔗 Dashboard Integration
 
+### Configuration Requirements
+
+#### Required Environment Variables
+
+To enable AI-powered maintenance comments, configure the following environment variable:
+
+```bash
+OPENAI_API_KEY=sk-your-openai-api-key-here
+```
+
+**Setup Options**:
+1. Create `.env` file in project root (copy from `.env.example`)
+2. Set environment variable in your shell/system
+3. Configure in deployment environment (Azure App Settings, AWS Secrets Manager, etc.)
+
+**Graceful Degradation**:
+- If OpenAI API key is not configured, AI comments will be `None`/`null`
+- Pipeline continues to operate normally with percentile-based scoring
+- AI service logs warnings when disabled but does not block execution
+
+**Model Configuration**:
+- Default model: `gpt-4o-mini` (cost-effective, fast)
+- Alternative: `gpt-4o` (higher quality, slower, more expensive)
+- Configurable via `AICommentService` initialization
+
+**Cost Considerations**:
+- ~250 tokens per component comment
+- ~350 tokens per machine summary
+- For fleet of 50 units × 12 components = ~600 API calls/week
+- Estimated cost: $1-2 USD/week with gpt-4o-mini
+
+---
+
 ### How Outputs Are Consumed
 
 The Golden layer files produced by this pipeline feed into the **Monitoring → Telemetry** section of the Multi-Technical Alerts Dashboard:
@@ -529,15 +621,17 @@ The Golden layer files produced by this pipeline feed into the **Monitoring → 
   - Summary KPIs (% Normal, % Alerta, % Anormal)
 
 #### 2. Machine Detail View
-- **Data Source**: `machine_status.parquet` → `component_details` field
+- **Data Source**: `machine_status.parquet` → `component_details` field + `ai_health_summary`
 - **Visualization**:
+  - AI health summary card (executive overview)
   - Component health table
   - Radar chart of component scores
   - Timeline of status changes over weeks
 
 #### 3. Component Drill-Down
-- **Data Source**: `classified.parquet` → `signals_evaluation` field
+- **Data Source**: `classified.parquet` → `signals_evaluation` field + `ai_recommendation`
 - **Visualization**:
+  - AI maintenance recommendation panel (when status ≠ Normal)
   - Signal distribution plots (boxplot: observed vs baseline percentiles)
   - Time series of signal readings with percentile bands
   - Anomaly heatmap (signals × time)
@@ -546,7 +640,7 @@ The Golden layer files produced by this pipeline feed into the **Monitoring → 
 - **Data Source**: Original Silver layer + baseline files
 - **Visualization**:
   - Interactive time series plot
-  - Overlayed percentile thresholds ($P_2, P_5, P_{95}, P_{98}$)
+  - Overlayed percentile thresholds ($P_1, P_5, P_{95}, P_{99}$)
   - Highlighted anomaly regions
   - State transitions markers
 
@@ -603,6 +697,13 @@ Each level provides supporting evidence for the evaluation at the next level up.
 ---
 
 ## 📝 Version History
+
+### Version 1.1.0 (April 2026)
+- Added AI-powered maintenance comment generation using OpenAI API
+- Component-level AI recommendations for anomalous conditions
+- Machine-level AI health summaries for executive insights
+- Updated percentile thresholds: P1/P99 instead of P2/P98 for stricter anomaly detection
+- Increased signal and component scoring thresholds for reduced false positives
 
 ### Version 1.0.0 (February 2026)
 - Initial telemetry analysis pipeline specification
