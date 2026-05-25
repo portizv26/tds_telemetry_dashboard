@@ -80,3 +80,8 @@ dataDev/
 
 # any file thats has qsk on the name
 *qsk*
+
+# any html file
+*.html
+*.png
+notebooks/*
