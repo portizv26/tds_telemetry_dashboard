@@ -689,7 +689,7 @@ confidence_score = max(confidence_score, 0)
 
 **Per baseline entity** (client + model + signal + state):
 
-Calculate percentiles: P1, P5, P50, P95, P99  
+Calculate percentiles: P1, P2, P5, P10, P50, P90, P95, P98, P99  
 Calculate moments: mean, std, MAD  
 Store metadata: sample_count, training_start, training_end  
 Calculate quality: quality_score = f(sample_count, distribution_shape)

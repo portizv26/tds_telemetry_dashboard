@@ -207,31 +207,121 @@ This project uses a **hierarchical documentation structure** with two levels:
 
 ---
 
-#### 8. `implementation_phase_5.md` — Optional Enhancements (Week 8+)
-**Purpose**: Guide for implementing advanced techniques based on validation gaps
+#### 8. `implementation_phase_5_advanced_diagnostic_rules.md` — Advanced Diagnostic Rules (Week 8)
+**Purpose**: Day-by-day guide for implementing sophisticated multi-signal failure patterns
 
 **Contains**:
-- Enhancement selection guidance (decision tree)
-- 4 optional technique implementations:
-  - Option A: Peer Deviation (2-3 days)
-  - Option B: AutoEncoder (4-5 days)
-  - Option C: Advanced Diagnostic Rules (2-3 days)
-  - Option D: Change-Point Detection (3-4 days)
-- Complete task breakdowns for each option
-- **Blank implementation notes** for each option
+- 3-day detailed timeline (Days 37-39)
+- 30+ task checkboxes
+- Advanced rule design (5-8 additional rules)
+- Rule engine enhancements (temporal logic, multi-signal patterns)
+- Historical backtest validation
+- Integration with Phase 3 aggregation
+- **Local execution guide** (no orchestration)
+- **Blank implementation notes** for daily tracking
 
-**Key deliverables** (pick 1-2):
-- Peer deviation technique (if selected)
-- AutoEncoder model (if selected)
-- Advanced diagnostic rules (if selected)
-- Change-point detection (if selected)
+**Key deliverables**:
+- 5-8 advanced diagnostic rules (10-15 total with Phase 3)
+- Enhanced DiagnosticRulesEngine
+- Backtest validation against known failures
+- Local runner script
 
 **When to use**:
-- 🤔 Deciding which enhancements to pursue
-- 🚀 Implementing advanced techniques
-- 🎯 Addressing Phase 4 validation gaps
+- 🧠 Encoding domain expert knowledge into rules
+- 🔍 Detecting complex mechanical failure patterns
+- 📋 Adding explainable intelligence layer
+- 🎯 Targeting failures missed by Phase 2 techniques
 
-**Target audience**: Data scientists implementing advanced techniques
+**Target audience**: Data scientists, domain experts
+
+---
+
+#### 9. `implementation_phase_6_peer_deviation.md` — Peer Deviation Analysis (Week 9)
+**Purpose**: Day-by-day guide for implementing fleet-based peer comparison
+
+**Contains**:
+- 3-day detailed timeline (Days 40-42)
+- 25+ task checkboxes
+- Fleet baseline generation (percentiles, z-scores)
+- Peer comparison logic implementation
+- Risk score normalization (relative performance)
+- Bottom performer identification
+- **Local execution guide** (simple Python runners)
+- **Blank implementation notes** for daily tracking
+
+**Key deliverables**:
+- Fleet baseline generation system
+- PeerDeviation technique class
+- Peer comparison results (percentile ranks, z-scores)
+- Bottom 10% performers report
+
+**When to use**:
+- 📊 Comparing units against fleet context
+- 🔍 Detecting relative underperformance
+- 📈 Identifying units drifting from fleet average
+- 🎯 Catching "slow drift" failures
+
+**Target audience**: Data scientists implementing statistical techniques
+
+---
+
+#### 10. `implementation_phase_7_change_point.md` — Change-Point Detection (Weeks 9-10)
+**Purpose**: Day-by-day guide for detecting sudden regime shifts using PELT algorithm
+
+**Contains**:
+- 4-day detailed timeline (Days 43-46)
+- 35+ task checkboxes
+- PELT algorithm implementation (ruptures library)
+- Change-point detection and analysis
+- Maintenance event correlation
+- Parameter tuning (penalty, segment length)
+- **Local execution guide** (weekly execution)
+- **Blank implementation notes** for daily tracking
+
+**Key deliverables**:
+- ChangePointDetection technique class
+- Regime shift detection (before/after analysis)
+- Maintenance event labeling
+- High-risk change-point reports
+
+**When to use**:
+- 🔄 Detecting sudden behavioral changes
+- 📅 Distinguishing maintenance from degradation
+- 🚨 Identifying failure precursor events
+- 🎯 Catching abrupt deterioration
+
+**Target audience**: Data scientists implementing time series analysis
+
+---
+
+#### 11. `implementation_phase_8_autoencoder.md` — AutoEncoder Anomaly Detection (Weeks 10-11)
+**Purpose**: Day-by-day guide for implementing ML-based multivariate anomaly detection
+
+**Contains**:
+- 5-day detailed timeline (Days 47-51)
+- 40+ task checkboxes
+- AutoEncoder architecture design (6→4→2→4→6)
+- Model training on healthy data
+- Threshold calibration (P95 reconstruction error)
+- SHAP explainability integration (optional)
+- **Local execution guide** (TensorFlow/Keras setup)
+- **Blank implementation notes** for daily tracking
+
+**Key deliverables**:
+- Trained AutoEncoder model (Engine system)
+- AutoEncoderAnomaly technique class
+- Validation against known failures
+- Model registry and serving infrastructure
+
+**When to use**:
+- 🤖 Detecting complex multivariate patterns
+- 🔬 Analyzing signal interactions and correlations
+- 🎯 Catching failures explainable techniques miss
+- ⚠️ Last resort for complex failure modes
+
+**Target audience**: Data scientists, ML engineers
+
+**⚠️ Important**: Phases 5-8 are now **MANDATORY** (no longer optional). Each phase builds a distinct analytical capability and should be completed sequentially.
 
 ---
 
@@ -246,7 +336,19 @@ This project uses a **hierarchical documentation structure** with two levels:
 
 ---
 
-### Step 2: Phase Execution (Weeks 1-7+)
+### Step 2: Phase Execution (Weeks 1-11)
+
+**Complete 8-Phase Implementation Timeline**:
+- **Phase 1** (Weeks 1-2): Foundation — Data infrastructure and baselines
+- **Phase 2** (Weeks 3-4): Core Analytics — Threshold, event, trend techniques
+- **Phase 3** (Weeks 5-6): Aggregation & Intelligence — System/unit health, diagnostic rules
+- **Phase 4** (Week 7): Validation — Historical backtest and threshold calibration
+- **Phase 5** (Week 8, 2-3 days): Advanced Diagnostic Rules — Complex failure patterns
+- **Phase 6** (Week 9, 2-3 days): Peer Deviation — Fleet-based comparison
+- **Phase 7** (Weeks 9-10, 3-4 days): Change-Point Detection — Regime shift analysis
+- **Phase 8** (Weeks 10-11, 4-5 days): AutoEncoder — ML-based multivariate anomaly detection
+
+**Total Duration**: ~11 weeks (55 working days)
 
 **For each phase**:
 
@@ -275,11 +377,13 @@ Afternoon:
 - Prepare for next day
 ```
 
+**Local Execution Note**: Phases 5-8 include detailed local execution guides with command-line scripts. No orchestration framework (Prefect) is required — run scripts manually as needed.
+
 ---
 
 ### Step 3: Cross-Phase References
 
-**While implementing techniques** (Phase 2-3):
+**While implementing techniques** (Phases 2, 5-8):
 - Reference `data_contracts.md` for schema definitions
 - Reference `project_overview.md` for methodology details
 - Reference `implementation_plan.md` for technical component specs
@@ -287,6 +391,11 @@ Afternoon:
 **While validating** (Phase 4):
 - Reference Phase 2-3 retrospectives for known issues
 - Reference `implementation_plan.md` for success criteria thresholds
+
+**While implementing advanced techniques** (Phases 5-8):
+- Reference Phase 4 validation report for gaps to address
+- Reference Phase 2-3 outputs for input data
+- Each phase builds incrementally on previous work
 
 ---
 

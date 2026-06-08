@@ -1,0 +1,50 @@
+{
+  "baseline_version": "20260528",
+  "generation_timestamp": "2026-05-28T22:04:51.747170",
+  "training_window_start": "2026-02-27T22:05:00",
+  "training_window_end": "2026-04-09T00:00:00",
+  "total_records": 881,
+  "clients": [
+    "CDA"
+  ],
+  "signals": [
+    "EngCoolTemp",
+    "EngOilPres",
+    "EngSpd",
+    "TCOutTemp",
+    "RAftrclrTemp",
+    "LtExhTemp",
+    "RtExhTemp",
+    "RtLtExhTemp",
+    "AirFltr",
+    "CnkcasePres",
+    "TrnLubeTemp",
+    "DiffTemp",
+    "DiffLubePres",
+    "LtFBrkTemp",
+    "RtFBrkTemp",
+    "LtRBrkTemp",
+    "RtRBrkTemp",
+    "StrgOilTemp"
+  ],
+  "states": [
+    "Operacional Alto",
+    "Operacional Bajo",
+    "ND",
+    "Ralenti Alto",
+    "Ralenti",
+    "Ralenti Bajo"
+  ],
+  "fallback_levels": {
+    "unit": 777,
+    "client": 104
+  },
+  "min_samples_required": 1000,
+  "percentiles_calculated": [
+    1,
+    5,
+    50,
+    95,
+    99
+  ]
+}

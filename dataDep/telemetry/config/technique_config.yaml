@@ -1,0 +1,250 @@
+# Technique Configuration v1.0
+# Based on data_contracts.md Section 3.2
+# Execution parameters for analytical techniques
+
+version: "1.0"
+last_updated: "2026-05-25"
+
+techniques:
+  # ==========================================================================
+  # THRESHOLD DEVIATION
+  # ==========================================================================
+  - name: "threshold_deviation"
+    version: "1.0.0"
+    enabled: true
+    cadence: "daily"  # Run daily
+    lookback_window: "24h"
+    validity_period_days: 2
+    
+    parameters:
+      # Baseline percentiles to use
+      low_threshold_percentile: "p5"    # Normal lower bound
+      high_threshold_percentile: "p95"  # Normal upper bound
+      extreme_low_percentile: "p1"      # Abnormal lower bound
+      extreme_high_percentile: "p99"    # Abnormal upper bound
+      
+      # Risk score thresholds
+      alert_risk_threshold: 40.0    # Risk score for Alerta status
+      anormal_risk_threshold: 70.0  # Risk score for Anormal status
+      
+      # Severity boost parameters
+      severe_excursion_multiplier: 1.2  # Multiplier for baseline limit
+      severity_boost_factor: 1.3        # Boost factor when severe
+      
+      # Minimum data requirements
+      min_samples_per_day: 100
+      min_coverage_pct: 30.0  # Minimum 30% data coverage
+    
+    # Weekly summary parameters
+    weekly_summary:
+      enabled: true
+      lookback_days: 7
+      aggregate_method: "max"  # max, mean, or median
+  
+  # ==========================================================================
+  # EVENT DETECTION
+  # ==========================================================================
+  - name: "event_detection"
+    version: "1.0.0"
+    enabled: true
+    cadence: "daily"
+    lookback_window: "24h"
+    validity_period_days: 2
+    
+    parameters:
+      # Event classification (by duration)
+      spike_duration_max: 5      # minutes
+      episode_duration_max: 60   # minutes
+      # sustained: > episode_duration_max
+      
+      # Gap tolerance for grouping consecutive abnormal minutes
+      max_gap_minutes: 5
+      
+      # Minimum event duration to report
+      min_event_duration: 1  # minutes
+      
+      # Severity calculation
+      duration_weight: 0.6
+      deviation_weight: 0.4
+      
+  # ==========================================================================
+  # TREND ANALYSIS
+  # ==========================================================================
+  - name: "trend_analysis"
+    version: "1.0.0"
+    enabled: true
+    cadence: "weekly"
+    validity_period_days: 28  # 4 weeks
+    
+    parameters:
+      # Lookback windows (in weeks)
+      lookback_windows: [4, 8, 12]
+      
+      # Trend detection thresholds
+      min_valid_weeks_pct: 50.0  # Need ≥50% weeks with data
+      min_r_squared: 0.5         # Minimum R² for reliable trend
+      max_p_value: 0.05          # Maximum p-value for significance
+      
+      # Risk scoring parameters
+      delta_pct_multiplier: 2.0      # delta% * 2 → magnitude_score
+      r_squared_multiplier: 50.0     # R² * 50 → persistence_score
+      significance_bonus: 20.0       # Bonus if p < 0.01
+      
+      # Status thresholds
+      alert_risk_threshold: 40.0
+      anormal_risk_threshold: 65.0
+      
+      # Trend direction determination
+      slope_threshold_pct: 2.0  # |slope| > 2% → degrading/improving
+      
+      # Aggregation method for weekly summaries
+      aggregation_method: "p95"  # Use P95 for weekly aggregate
+      min_samples_per_week: 1000
+      
+  # ==========================================================================
+  # DIAGNOSTIC RULES
+  # ==========================================================================
+  - name: "diagnostic_rules"
+    version: "1.0.0"
+    enabled: true
+    cadence: "daily"
+    lookback_window: "24h"
+    validity_period_days: 2
+    
+    parameters:
+      # Minimum concurrent duration for rule activation
+      min_concurrent_duration: 10  # minutes
+      
+      # Risk scoring
+      base_severity_weight: 1.0
+      max_duration_multiplier: 2.0
+      
+      # Status thresholds
+      alert_risk_threshold: 50.0
+      anormal_risk_threshold: 75.0
+
+# =============================================================================
+# BASELINE CONFIGURATION
+# =============================================================================
+baseline:
+  # Baseline generation parameters
+  lookback_days: 90              # Training window
+  min_samples_required: 1000     # Minimum samples for valid baseline
+  refresh_schedule: "monthly"    # How often to regenerate
+  
+  # Percentiles to calculate
+  percentiles: [1, 5, 50, 95, 99]
+  
+  # Fallback hierarchy when unit-level baseline insufficient
+  fallback_hierarchy:
+    - "unit"       # Unit-specific baseline (preferred)
+    - "model"      # Equipment model aggregate
+    - "client"     # Client fleet aggregate
+    - "global"     # All equipment (last resort)
+  
+  # Quality score calculation
+  quality_thresholds:
+    excellent: 5000   # samples
+    good: 2000
+    acceptable: 1000
+    # Below acceptable = insufficient data
+
+# =============================================================================
+# DATA QUALITY THRESHOLDS
+# =============================================================================
+data_quality:
+  # Minimum requirements for analysis
+  min_coverage_pct: 30.0         # Minimum % of expected samples
+  max_consecutive_missing: 30    # minutes
+  
+  # Confidence score calculation factors
+  coverage_weight: 0.4
+  baseline_quality_weight: 0.3
+  sample_size_weight: 0.2
+  state_match_weight: 0.1
+
+# =============================================================================
+# AGGREGATION PARAMETERS
+# =============================================================================
+aggregation:
+  # System-level aggregation
+  system:
+    # Aggregation formula weights (must sum to 1.0)
+    max_critical_weight: 0.4        # Weight for worst signal
+    weighted_mean_weight: 0.3       # Weight for criticality-weighted mean
+    multi_technique_weight: 0.2     # Weight for multi-technique agreement
+    diagnostic_rule_weight: 0.1     # Weight for diagnostic rules
+    
+    # Time decay for technique results
+    time_decay_halflife_days: 7     # Results decay over time
+    
+    # Signal criticality multipliers
+    criticality_multipliers:
+      1: 0.5   # Low criticality
+      2: 1.0   # Medium criticality
+      3: 1.5   # High criticality
+    
+    # Multi-technique agreement boost
+    multi_technique_boost: 1.2      # 20% boost when ≥2 techniques agree
+    
+    # Status thresholds
+    alert_threshold: 35.0
+    anormal_threshold: 60.0
+  
+  # Unit-level aggregation
+  unit:
+    # Priority score formula weights
+    anormal_critical_systems_weight: 100
+    anormal_other_systems_weight: 50
+    alerta_critical_systems_weight: 25
+    alerta_other_systems_weight: 10
+    insufficient_data_penalty: 5
+    
+    # Critical systems (highest weight)
+    critical_systems: ["Engine", "Transmission", "Brakes"]
+    
+    # Status determination
+    anormal_if_n_systems: 2          # Anormal if ≥2 systems Anormal
+    insufficient_data_threshold: 50.0 # Confidence threshold
+    
+    # Maintenance urgency thresholds
+    urgency_thresholds:
+      immediate: 80.0      # Priority score ≥ 80
+      this_week: 60.0
+      this_month: 40.0
+      # monitor: < this_month
+
+# =============================================================================
+# OUTPUT CONFIGURATION
+# =============================================================================
+output:
+  # Output format
+  format: "parquet"
+  compression: "snappy"
+  
+  # Partitioning strategy
+  partitioning:
+    technique_results: "year={year}/month={month}/day={day}"
+    system_health: "year={year}/week={week}/client={client}"
+    unit_health: "year={year}/week={week}/client={client}"
+    events: "year={year}/month={month}/day={day}"
+    baselines: "year={year}/month={month}"
+  
+  # Schema version
+  schema_version: "1.0.0"
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+  
+  # Log to file
+  file:
+    enabled: true
+    directory: "logs"
+    filename_pattern: "telemetry_pipeline_{date}.log"
+    max_bytes: 10485760  # 10 MB
+    backup_count: 5

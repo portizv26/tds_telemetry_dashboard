@@ -1,0 +1,301 @@
+# Signal Registry v1.1
+# Updated to match actual Silver layer signal names from CDA data
+# CAT 789C/D Mining Truck Telemetry Signals
+
+version: "1.1"
+last_updated: "2026-05-28"
+
+signals:
+  # ============================================================================
+  # ENGINE SYSTEM
+  # ============================================================================
+  
+  - name: "EngCoolTemp"
+    display_name: "Engine Coolant Temperature"
+    system: "Engine"
+    subsystem: "Cooling"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 150.0
+    criticality: 3
+    enabled_techniques: ["threshold_deviation", "trend_analysis", "event_detection"]
+    description: "Engine coolant temperature - critical for thermal management"
+    
+  - name: "EngOilPres"
+    display_name: "Engine Oil Pressure"
+    system: "Engine"
+    subsystem: "Lubrication"
+    unit: "kPa"
+    risk_direction: "low"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 800.0
+    criticality: 3
+    enabled_techniques: ["threshold_deviation", "trend_analysis", "event_detection"]
+    description: "Engine oil pressure - critical for engine protection"
+    
+  - name: "EngOilFltr"
+    display_name: "Engine Oil Filter"
+    system: "Engine"
+    subsystem: "Lubrication"
+    unit: "kPa"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 500.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Engine oil filter differential pressure"
+    
+  - name: "EngSpd"
+    display_name: "Engine Speed"
+    system: "Engine"
+    subsystem: "Performance"
+    unit: "RPM"
+    risk_direction: "both"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 2500.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "event_detection"]
+    description: "Engine rotational speed"
+    
+  - name: "TCOutTemp"
+    display_name: "Turbo Charger Outlet Temperature"
+    system: "Engine"
+    subsystem: "Turbocharger"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 800.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Turbocharger outlet temperature"
+    
+  - name: "RAftrclrTemp"
+    display_name: "Right Aftercooler Temperature"
+    system: "Engine"
+    subsystem: "Cooling"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 150.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Right aftercooler temperature"
+    
+  - name: "LtExhTemp"
+    display_name: "Left Exhaust Temperature"
+    system: "Engine"
+    subsystem: "Exhaust"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 800.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Left exhaust temperature"
+    
+  - name: "RtExhTemp"
+    display_name: "Right Exhaust Temperature"
+    system: "Engine"
+    subsystem: "Exhaust"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 800.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Right exhaust temperature"
+    
+  - name: "RtLtExhTemp"
+    display_name: "Right-Left Exhaust Temperature"
+    system: "Engine"
+    subsystem: "Exhaust"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 800.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Combined right-left exhaust temperature"
+    
+  - name: "AirFltr"
+    display_name: "Air Filter"
+    system: "Engine"
+    subsystem: "Air Intake"
+    unit: "kPa"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 15.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Air filter restriction"
+    
+  - name: "CnkcasePres"
+    display_name: "Crankcase Pressure"
+    system: "Engine"
+    subsystem: "Ventilation"
+    unit: "kPa"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 10.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "event_detection"]
+    description: "Crankcase pressure"
+    
+  # ============================================================================
+  # TRANSMISSION SYSTEM
+  # ============================================================================
+  
+  - name: "TrnLubeTemp"
+    display_name: "Transmission Lube Temperature"
+    system: "Transmission"
+    subsystem: "Lubrication"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 150.0
+    criticality: 3
+    enabled_techniques: ["threshold_deviation", "trend_analysis", "event_detection"]
+    description: "Transmission lubrication temperature - critical for transmission health"
+    
+  # ============================================================================
+  # DRIVE SYSTEM
+  # ============================================================================
+  
+  - name: "DiffTemp"
+    display_name: "Differential Temperature"
+    system: "Drive"
+    subsystem: "Differential"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 150.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Differential oil temperature"
+    
+  - name: "DiffLubePres"
+    display_name: "Differential Lube Pressure"
+    system: "Drive"
+    subsystem: "Differential"
+    unit: "kPa"
+    risk_direction: "low"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 800.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "event_detection"]
+    description: "Differential lubrication pressure"
+    
+  # ============================================================================
+  # BRAKE SYSTEM
+  # ============================================================================
+  
+  - name: "LtFBrkTemp"
+    display_name: "Left Front Brake Temperature"
+    system: "Brakes"
+    subsystem: "Thermal"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 600.0
+    criticality: 3
+    enabled_techniques: ["threshold_deviation", "trend_analysis", "event_detection"]
+    description: "Left front brake temperature - safety critical"
+    
+  - name: "RtFBrkTemp"
+    display_name: "Right Front Brake Temperature"
+    system: "Brakes"
+    subsystem: "Thermal"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 600.0
+    criticality: 3
+    enabled_techniques: ["threshold_deviation", "trend_analysis", "event_detection"]
+    description: "Right front brake temperature - safety critical"
+    
+  - name: "LtRBrkTemp"
+    display_name: "Left Rear Brake Temperature"
+    system: "Brakes"
+    subsystem: "Thermal"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 600.0
+    criticality: 3
+    enabled_techniques: ["threshold_deviation", "trend_analysis", "event_detection"]
+    description: "Left rear brake temperature - safety critical"
+    
+  - name: "RtRBrkTemp"
+    display_name: "Right Rear Brake Temperature"
+    system: "Brakes"
+    subsystem: "Thermal"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 600.0
+    criticality: 3
+    enabled_techniques: ["threshold_deviation", "trend_analysis", "event_detection"]
+    description: "Right rear brake temperature - safety critical"
+    
+  # ============================================================================
+  # STEERING SYSTEM
+  # ============================================================================
+  
+  - name: "StrgOilTemp"
+    display_name: "Steering Oil Temperature"
+    system: "Steering"
+    subsystem: "Hydraulic"
+    unit: "°C"
+    risk_direction: "high"
+    valid_states: ["Operacional Alto", "Operacional Bajo", "Ralenti", "Ralenti Alto", "Ralenti Bajo", "ND"]
+    physical_min: 0.0
+    physical_max: 120.0
+    criticality: 2
+    enabled_techniques: ["threshold_deviation", "trend_analysis"]
+    description: "Steering hydraulic oil temperature"
+
+# System definitions
+systems:
+  - name: "Engine"
+    display_name: "Engine System"
+    criticality: 3
+    description: "Primary power unit including cooling, lubrication, and exhaust"
+    
+  - name: "Transmission"
+    display_name: "Transmission System"
+    criticality: 3
+    description: "Power transfer from engine to drive system"
+    
+  - name: "Drive"
+    display_name: "Drive System"
+    criticality: 2
+    description: "Differential and axle components"
+    
+  - name: "Brakes"
+    display_name: "Brake System"
+    criticality: 3
+    description: "Brake system including all wheel positions - safety critical"
+    
+  - name: "Steering"
+    display_name: "Steering System"
+    criticality: 2
+    description: "Steering hydraulic system"

@@ -309,7 +309,7 @@ system_score = weighted_sum(
 #### 4.2.2 Baseline Flow
 1. Historical Silver data (90+ days)
 2. Group by: client + model + signal + operational_state
-3. Calculate: P1, P5, P50, P95, P99, mean, std, MAD
+3. Calculate: P1, P2, P5, P10, P50, P90, P95, P98, P99, mean, std, MAD
 4. Store with metadata: version, training_window, sample_count
 5. Refresh monthly
 

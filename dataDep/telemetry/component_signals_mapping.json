@@ -1,0 +1,47 @@
+{
+  "components": {
+    "Motor": {
+      "signals": [
+        "EngCoolTemp",
+        "RAftrclrTemp",
+        "EngOilPres",
+        "EngOilFltr",
+        "CnkcasePres",
+        "RtLtExhTemp",
+        "RtExhTemp",
+        "LtExhTemp",
+        "AirFltr"
+      ],
+      "criticality": "High",
+      "description": "Engine system monitoring - primary power unit for the equipment"
+    },
+    "Tren de fuerza": {
+      "signals": [
+        "DiffLubePres",
+        "DiffTemp",
+        "TrnLubeTemp",
+        "TCOutTemp"
+      ],
+      "criticality": "High",
+      "description": "Drivetrain system - transfers power from engine to wheels/tracks"
+    },
+    "Frenos": {
+      "signals": [
+        "RtRBrkTemp",
+        "RtFBrkTemp",
+        "LtRBrkTemp",
+        "LtFBrkTemp"
+      ],
+      "criticality": "Medium",
+      "description": "Brake system - critical for safety and equipment control"
+    },
+    "Direccion": {
+      "signals": [
+        "StrgOilTemp"
+      ],
+      "criticality": "Medium",
+      "description": "Steering system - controls equipment direction"
+    }
+  }
+}
+
