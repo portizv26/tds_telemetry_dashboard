@@ -1,204 +1,210 @@
-# Telemetry Dashboard - Pipeline
+# Telemetry Health Evaluation Framework
 
-Multi-Technical Alerts Dashboard platform for processing sensor telemetry data from mining equipment.
+Multi-technique analytical framework that transforms minute-level telemetry from mining equipment into explainable, confidence-scored health assessments.
 
 ## Overview
 
-This repository implements the **Telemetry Analysis Pipeline** - a specialized component focused on processing sensor telemetry data using percentile-based anomaly detection and AI-powered maintenance insights.
+This framework processes raw telemetry signals from CAT 789C/D mining trucks and applies **five complementary analysis techniques** to detect equipment anomalies, degradation patterns, and operational issues. Results are aggregated into a fleet-level priority ranking with LLM-generated natural language explanations.
 
-### Key Features
+### Techniques
 
-✅ **Percentile-Based Anomaly Detection**: Statistical scoring using historical baselines (P1, P5, P95, P99)  
-✅ **Hierarchical Evaluation**: Signal → Component → Machine health assessment  
-✅ **AI-Powered Insights**: OpenAI-generated maintenance comments and health summaries  
-✅ **Time-Series Analysis**: Weekly batch processing with historical tracking  
-✅ **Golden Layer Outputs**: Structured parquet files for dashboard consumption  
+| Technique | Cadence | What It Detects |
+|-----------|---------|-----------------|
+| **Deviation Analysis** | Daily | Threshold violations per signal |
+| **Event Analysis** | Daily | Persistent abnormal episodes |
+| **Trend Analysis** | Weekly | Progressive degradation over 4–12 weeks |
+| **Distribution Shift** | Weekly | Statistical changes in signal behavior |
+| **LSTM Autoencoder** | 6-hourly | Multi-signal pattern anomalies |
+
+### Hierarchy
+
+```
+Signal-Level (per technique) → System-Level (Engine, Brakes, etc.) → Unit-Level (fleet ranking)
+```
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.12+
-- AWS credentials (for S3 data access)
-- OpenAI API key (for AI maintenance comments)
+- Dependencies: `pip install -r requirements.txt`
+- `.env` file with `OPENAI_API_KEY` (for LLM explanations)
 
 ### Installation
 
 ```bash
-# Clone repository
 git clone <repository-url>
 cd telemetry_dashboard
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Configure environment variables
-cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY and AWS credentials
 ```
 
-### Configuration
+### Create `.env` File
 
-Create a `.env` file with the following variables:
+```env
+OPENAI_API_KEY=sk-your-key-here
+```
+
+### Run the Pipeline
 
 ```bash
-# Required for AI-generated maintenance comments
-OPENAI_API_KEY=sk-your-openai-api-key-here
+# Full pipeline (all techniques + LLM)
+python -m src.main --client cda
 
-# Required for S3 data access
-AWS_ACCESS_KEY_ID=your-aws-access-key
-AWS_SECRET_ACCESS_KEY=your-aws-secret-key
-AWS_DEFAULT_REGION=us-east-1
+# Process specific weeks only
+python -m src.main --client cda --weeks Week22Year2026 Week23Year2026
+
+# Fast mode: skip autoencoder training and LLM calls
+python -m src.main --client cda --skip-autoencoder --skip-llm
+
+# Debug mode
+python -m src.main --client cda --log-level DEBUG
 ```
 
-### Running the Pipeline
+### Output
 
-```python
-# See notebooks/mvp_testing_v2.ipynb for complete example
-from src.telemetry import data_loader, baseline, scoring, aggregation, output_writer
+Results are written to `data/telemetry/golden/{client}/` as partitioned Parquet files:
+- `technique_results/` — Per-technique detailed results
+- `system_health/` — System-level aggregated assessments
+- `unit_health/` — Fleet-level priority ranking
 
-# 1. Load evaluation week
-current_df = data_loader.load_evaluation_week(client='cda', week=8, year=2026)
+A JSON summary is also written to the working directory after each run.
 
-# 2. Compute baseline percentiles
-baseline_df = baseline.compute_baseline_percentiles(training_df, signal_cols)
-
-# 3. Evaluate signals
-signal_evaluation_df = scoring.evaluate_signals(current_df, baseline_df, signal_cols)
-
-# 4. Aggregate to components (includes AI comments)
-component_df = aggregation.aggregate_to_components(signal_evaluation_df, component_mapping, ...)
-
-# 5. Aggregate to machines (includes AI summaries)
-machine_df = aggregation.aggregate_to_machines(component_df, ...)
-
-# 6. Write Golden layer outputs
-output_writer.write_golden_outputs(machine_df, component_df, client)
-```
-
-## AI-Powered Maintenance Comments
-
-The pipeline automatically generates expert maintenance insights using OpenAI API:
-
-### Component-Level Comments
-
-For components with anomalous conditions (Alerta or Anormal status):
-- **What**: Describes the detected abnormal condition
-- **Why**: Indicates possible root causes
-- **Risk**: Explains operational risks if not addressed
-
-**Example**:
-```
-Se detectó temperatura anormal del refrigerante del motor (EngCoolTemp) con 45.2% de lecturas 
-fuera del rango histórico P1-P99. Esto puede indicar obstrucción en el sistema de enfriamiento, 
-falla de termostato, o nivel bajo de refrigerante. Si no se atiende, existe riesgo de 
-sobrecalentamiento del motor que puede causar daño severo a componentes internos.
-```
-
-### Machine-Level Summaries
-
-Executive summary for overall equipment condition:
-- General health assessment
-- Critical affected components
-- Operational risks
-- Maintenance priority recommendation
-
-**Example**:
-```
-El equipo presenta condición crítica con 3 componentes anormales detectados. El Motor muestra 
-temperatura de refrigerante elevada y presión de aceite baja, la Transmisión registra temperatura 
-de lubricante fuera de rango. Estos patrones indican alto riesgo de falla catastrófica si se 
-mantiene operación sin intervención. Se recomienda inspección inmediata.
-```
-
-### Disabling AI Comments
-
-If you don't have an OpenAI API key or want to disable AI comments:
-- Remove or comment out `OPENAI_API_KEY` from `.env`
-- Pipeline will continue to work normally
-- AI comment columns will be `None`/`null` in output files
-- Warnings logged but execution not blocked
+---
 
 ## Project Structure
 
 ```
 telemetry_dashboard/
-├── data/
-│   ├── telemetry/
-│   │   ├── silver/          # Input: weekly telemetry data
-│   │   └── golden/          # Output: evaluated health assessments
-│   ├── mantentions/         # Maintenance records
-│   └── oil/                 # Oil analysis data
-├── src/
-│   ├── telemetry/           # Core pipeline modules
-│   │   ├── baseline.py      # Percentile baseline computation
-│   │   ├── scoring.py       # Signal anomaly scoring
-│   │   ├── aggregation.py   # Component/machine aggregation
-│   │   └── output_writer.py # Golden layer writer
-│   ├── services/
-│   │   ├── ai_comment_service.py  # OpenAI integration
-│   │   └── ...
+├── src/                          # Production pipeline code
+│   ├── main.py                   # CLI entry point
+│   ├── pipeline.py               # Orchestrator (coordinates all phases)
+│   ├── config/
+│   │   └── settings.py           # Configuration dataclasses + loading
+│   ├── techniques/
+│   │   ├── deviation.py          # Threshold-based risk classification
+│   │   ├── events.py             # Temporal pattern detection
+│   │   ├── trend.py              # Linear regression trend analysis
+│   │   ├── distribution.py       # Mann-Whitney U distribution shifts
+│   │   ├── autoencoder.py        # LSTM autoencoder anomaly detection
+│   │   ├── aggregation.py        # Signal → System → Unit health
+│   │   └── llm_explain.py        # OpenAI natural language explanations
 │   └── utils/
-├── notebooks/
-│   ├── mvp_testing_v2.ipynb       # Pipeline testing
-│   └── multi_week_validation.ipynb
+│       └── data_utils.py         # Shared loading, preprocessing, scoring
+├── data/
+│   └── telemetry/
+│       ├── config/{client}/      # YAML configuration files
+│       ├── silver/{client}/      # Input: cleaned telemetry (parquet)
+│       └── golden/{client}/      # Output: analytical results (parquet)
 ├── documentation/
 │   └── telemetry/
-│       ├── project_overview.md        # Architecture & methodology
-│       ├── telemetry_data_contracts.md # Schema specifications
-│       └── ...
-└── requirements.txt
+│       ├── telemetry_processing_documentation.md  # Full technical docs
+│       ├── data_contracts.md     # Schema specifications
+│       └── programming_rules.md  # Engineering standards
+├── notebooks/                    # Research & exploration notebooks
+├── requirements.txt
+└── README.md
 ```
+
+---
+
+## Configuration
+
+### Signal Registry (`data/telemetry/config/{client}/signal_registry.yaml`)
+
+Defines each telemetry signal's properties:
+- `system` — Grouping (Engine, Transmission, Brakes, Steering)
+- `risk_direction` — Which direction is dangerous (`high`, `low`, `both`)
+- `threshold_compute` — Whether to include in deviation analysis
+- `criticality` — Importance weight (1=safety-critical, 3=monitoring)
+
+### Equipment Registry (`data/telemetry/config/{client}/equipment_registry.yaml`)
+
+Maps unit identifiers (T_09, T_15, etc.) to equipment models and hardware variants.
+
+### Analysis Config (optional)
+
+Override default parameters by creating `data/telemetry/config/{client}/analysis_config.yaml`. See [data_contracts.md](documentation/telemetry/data_contracts.md) for full schema.
+
+---
+
+## Data Requirements
+
+### Input (Silver Layer)
+
+Weekly parquet files at `data/telemetry/silver/{client}/Telemetry_Wide_With_States/`:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Unit` | string | Equipment ID (e.g., "T_09") |
+| `Fecha` | datetime | Timestamp (1-minute resolution) |
+| `Estado` | string | Operational state |
+| Signal columns | float64 | Telemetry readings |
+
+**Minimum data**: ≥12 weeks for reliable baselines, ≥90 days recommended.
+
+### Output (Golden Layer)
+
+Partitioned Parquet files at `data/telemetry/golden/{client}/`:
+- Technique results partitioned by `year/week`
+- System/Unit health with LLM explanations
+- Trained autoencoder models with metadata
+
+---
+
+## Usage Examples
+
+### Programmatic Usage
+
+```python
+from src.pipeline import TelemetryPipeline
+
+# Initialize and run
+pipeline = TelemetryPipeline(client="cda")
+summary = pipeline.run(skip_autoencoder=True, skip_llm=True)
+
+# Access results
+print(f"Units processed: {summary['units_processed']}")
+print(f"Anormal units: {summary['units_anormal']}")
+
+# Access DataFrames directly
+print(pipeline.unit_health[['unit', 'overall_status', 'priority_score']])
+print(pipeline.system_health[['unit', 'system', 'system_status', 'system_score']])
+```
+
+### Process Specific Weeks
+
+```python
+pipeline = TelemetryPipeline(
+    client="cda",
+    weeks=["Week20Year2026", "Week21Year2026", "Week22Year2026"]
+)
+summary = pipeline.run()
+```
+
+---
 
 ## Documentation
 
-- **[Project Overview](documentation/telemetry/project_overview.md)**: Architecture, methodology, and evaluation chain
-- **[Data Contracts](documentation/telemetry/telemetry_data_contracts.md)**: Schema specifications and data quality rules
-- **[Integration Plan](documentation/telemetry/integration_plan.md)**: Implementation roadmap
-- **[Programming Rules](documentation/telemetry/programming_rules.md)**: Code standards
+| Document | Purpose |
+|----------|---------|
+| [Technical Documentation](documentation/telemetry/telemetry_processing_documentation.md) | Full methodology, formulas, and architecture |
+| [Data Contracts](documentation/telemetry/data_contracts.md) | Schema specifications for all data files |
+| [Programming Rules](documentation/telemetry/programming_rules.md) | Engineering standards and conventions |
 
-## Output Schemas
+---
 
-### machine_status.parquet
-Machine-level health summary (one row per unit per week):
-- Overall status classification
-- Component status counts
-- Priority score for fleet ranking
-- **AI health summary** (executive overview)
+## Key Dependencies
 
-### classified.parquet
-Component-level evaluation detail (one row per unit-component-week):
-- Component health status
-- Triggering signals
-- Signal evaluation details
-- **AI maintenance recommendation** (technical insights)
+- **pandas / numpy / pyarrow** — Data processing
+- **scipy / scikit-learn** — Statistical analysis and ML
+- **tensorflow** — LSTM autoencoder (optional, can skip)
+- **openai** — LLM explanations (optional, requires API key)
+- **pyyaml / python-dotenv** — Configuration
 
-## Cost Estimation
-
-**AI Comment Generation** (using gpt-4o-mini):
-- Fleet size: 50 units
-- Components per unit: ~12
-- API calls per week: ~600
-- Estimated cost: **$1-2 USD/week**
-
-For higher quality comments, use `gpt-4o` (2-3x cost increase).
-
-## Version History
-
-### Version 1.1.0 (April 2026)
-- ✨ Added AI-powered maintenance comment generation
-- ⚙️ Updated percentile thresholds (P1/P99 instead of P2/P98)
-- 🔧 Stricter anomaly detection thresholds
-
-### Version 1.0.0 (February 2026)
-- 🎯 Initial telemetry analysis pipeline
-- 📊 Percentile-based anomaly detection
-- 🏗️ Hierarchical evaluation architecture
+---
 
 ## License
 
-[Add license information]
-
-## Contact
-
-[Add contact information]
+Internal project — Coddi / Patricio Ortiz.

@@ -1,7 +1,9 @@
 """
 Telemetry Health Evaluation Framework
-Multi-technique analytical system for mining equipment health assessment
-Version: 1.0.0
+=====================================
+
+Multi-technique analytical framework for mining equipment telemetry.
+Transforms minute-level telemetry into explainable, confidence-scored health assessments.
 """
 
 __version__ = "1.0.0"

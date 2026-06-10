@@ -1,87 +1,17 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.pyc
-
-# Virtual environments
+# environment variables
 .env
 .venv/
-venv/
-ENV/
-env/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Data files (exclude raw data, keep configuration)
+# data folders
 data/
-!data/telemetry/component_signals_mapping.json
+dataDep/*
 
-# Logs
-logs/
-*.log
+# images folders
+imgs/
 
-# Parquet files
-*.parquet
+# side_projects folder
+side_projects/
 
-# Model artifacts (exclude trained models)
-models/*.pkl
-models/*.pth
-models/*.h5
-models/autoencoders/*.pth
-
-# Jupyter Notebook
-.ipynb_checkpoints
-notebooks/simple_exploration.ipynb
-!notebooks/.gitkeep
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Temporary files
-*.tmp
-*.bak
-
-# OS files
-Thumbs.db
-.DS_Store
-
-# Some MD files
-GPU_SETUP_GUIDE.md
-regression_results.json
-merge_data.xlsx
-
-# Models
-models/
-configs/
-mlruns/
+# outputs and logs
 outputs/
-
-# nc file
-nc.py
-
-# Data deprecated
-dataDev/
-
-# any file thats has qsk on the name
-*qsk*
-
-# any html file
-*.html
-*.png
-notebooks/*
+logs/
