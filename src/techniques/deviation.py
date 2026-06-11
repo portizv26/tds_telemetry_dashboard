@@ -79,12 +79,67 @@ def compute_limits(
                 f"P{pct}": round(float(val), 2)
                 for pct, val in zip(config.percentiles, p)
             }
+            limits[model_spec][feature][state]["sample_count"] = int(len(values))
 
     logger.info(
         f"Computed limits: {len(limits)} models, "
         f"{sum(len(v) for v in limits.values())} model-signal combinations"
     )
     return limits
+
+
+def limits_to_dataframe(limits: dict, computation_date: datetime) -> pd.DataFrame:
+    """
+    Convert the nested limits dict into a flat DataFrame for persistence.
+
+    Parameters:
+        limits: Nested dict {model_spec: {signal: {state: {P1..P99, sample_count}}}}
+        computation_date: Date when limits were computed
+
+    Returns:
+        DataFrame with one row per (model_specification, signal, state).
+    """
+    records = []
+    for model_spec, signals in limits.items():
+        for signal, states in signals.items():
+            for state, percentiles in states.items():
+                record = {
+                    "model_specification": model_spec,
+                    "signal": signal,
+                    "state": state,
+                    "computation_date": computation_date.date(),
+                }
+                for key, val in percentiles.items():
+                    if key != "sample_count":
+                        record[key] = val
+                record["sample_count"] = percentiles.get("sample_count", 0)
+                records.append(record)
+
+    return pd.DataFrame(records)
+
+
+def persist_limits(limits: dict, limits_path, computation_date: datetime) -> None:
+    """
+    Persist computed limits to the Silver layer as a parquet file.
+
+    Parameters:
+        limits: Nested dict from compute_limits()
+        limits_path: Path to the limits directory
+        computation_date: Date for file naming
+    """
+    from pathlib import Path
+    limits_path = Path(limits_path)
+    limits_path.mkdir(parents=True, exist_ok=True)
+
+    df = limits_to_dataframe(limits, computation_date)
+    if df.empty:
+        logger.warning("No limits to persist (empty DataFrame)")
+        return
+
+    filename = f"limits_{computation_date.strftime('%Y%m%d')}.parquet"
+    filepath = limits_path / filename
+    df.to_parquet(filepath, index=False)
+    logger.info(f"Persisted {len(df)} limit records to {filepath}")
 
 
 def _get_thresholds(limits_model: dict, feature: str, risk_direction: str) -> dict:

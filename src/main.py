@@ -5,6 +5,7 @@ Usage:
     python -m src.main --client cda
     python -m src.main --client cda --weeks Week22Year2026 Week23Year2026
     python -m src.main --client cda --skip-autoencoder --skip-llm
+    python -m src.main --client cda --skip-ai-comments
 """
 
 import argparse
@@ -50,7 +51,11 @@ def main():
     )
     parser.add_argument(
         "--skip-llm", action="store_true",
-        help="Skip LLM explanation generation"
+        help="Skip legacy LLM explanation generation (saves API costs)"
+    )
+    parser.add_argument(
+        "--skip-ai-comments", action="store_true",
+        help="Skip AI Diagnosis comment generation (saves API costs)"
     )
     parser.add_argument(
         "--log-level", type=str, default="INFO",
@@ -68,6 +73,7 @@ def main():
     summary = pipeline.run(
         skip_autoencoder=args.skip_autoencoder,
         skip_llm=args.skip_llm,
+        skip_ai_comments=args.skip_ai_comments,
     )
 
     # Print summary

@@ -203,6 +203,15 @@ if critical_pct > 0:
 - ≥10 unique values per (model, state, signal) for valid percentile computation
 - ≥12 weeks of historical data for stable baseline estimates
 
+#### Limits Persistence
+
+Computed limits (the percentile-based thresholds per model_specification/state/signal) are **persisted to the Silver layer** at `data/telemetry/silver/{client}/limits/limits_{YYYYMMDD}.parquet`. This ensures:
+- **Auditability**: Which thresholds were active when a deviation was flagged
+- **Reproducibility**: Re-run event analysis without recomputing limits
+- **Downstream consumption**: Other tools/dashboards can reference the exact thresholds used
+
+Limits are recomputed and persisted on each pipeline execution. Previous versions are retained for historical traceability.
+
 ---
 
 ### 2. Event Analysis
@@ -668,7 +677,7 @@ Baselines computed per: `model_specification × signal × operational_state`
 ```
 Phase 1:  Load configuration + telemetry data
 Phase 2:  Preprocess (model specification, validation)
-Phase 3:  Load/compute baselines
+Phase 3:  Load/compute baselines and limits (persist limits to Silver layer)
 Phase 4:  Deviation Analysis (produces risk_level columns)
 Phase 5:  Event Analysis (depends on Phase 4)
 Phase 6:  Trend Analysis (independent)
@@ -730,6 +739,11 @@ Phase 12: Persist outputs to Golden layer
 ### Output Structure
 
 ```
+data/telemetry/silver/{client}/
+├── Telemetry_Wide_With_States/Week{WW}Year{YYYY}.parquet  (input)
+├── baselines/baseline_{YYYYMMDD}.parquet                  (input)
+└── limits/limits_{YYYYMMDD}.parquet                       (persisted during Phase 3)
+
 data/telemetry/golden/{client}/
 ├── technique_results/
 │   ├── deviation/year=2026/week=22/deviation_results.parquet

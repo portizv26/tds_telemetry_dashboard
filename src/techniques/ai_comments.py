@@ -101,16 +101,18 @@ def generate_signal_comments(
         )
 
         prompt = (
-            f"You are a mining equipment telemetry analyst. Diagnose this signal.\n\n"
-            f"**Signal**: {display_name} ({signal})\n"
-            f"**System**: {system}\n"
-            f"**Unit**: {unit}\n"
-            f"**Risk Direction**: {signal_meta.get('risk_direction', 'unknown')}\n"
-            f"**Criticality**: {signal_meta.get('criticality', 'unknown')}\n\n"
-            f"**Technique Evidence**:\n"
+            f"Eres un analista de telemetría de equipos mineros. Diagnostica esta señal.\n\n"
+            f"**Señal**: {display_name} ({signal})\n"
+            f"**Sistema**: {system}\n"
+            f"**Unidad**: {unit}\n"
+            f"**Dirección de riesgo**: {signal_meta.get('risk_direction', 'unknown')}\n"
+            f"**Criticidad**: {signal_meta.get('criticality', 'unknown')}\n\n"
+            f"**Evidencia de técnicas**:\n"
             f"{chr(10).join(evidence_lines)}\n\n"
-            f"In 2-3 sentences, explain what is remarkable about this signal based "
-            f"on the evidence. Be factual and specific. Do not speculate."
+            f"Responde en formato JSON con dos campos:\n"
+            f"- \"description\": Una oración breve (máx 20 palabras) indicando qué se detectó en esta señal.\n"
+            f"- \"explaining\": Un párrafo detallado (2-4 oraciones) explicando qué se encontró y por qué es relevante, basándote en la evidencia. Sé factual y específico.\n\n"
+            f"Responde SOLO con el JSON, sin texto adicional."
         )
 
         try:
@@ -121,15 +123,23 @@ def generate_signal_comments(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a concise technical analyst for mining equipment telemetry. Respond with factual observations only.",
+                        "content": "Eres un analista técnico conciso de telemetría de equipos mineros. Responde siempre en español con observaciones factuales. Responde únicamente en formato JSON válido.",
                     },
                     {"role": "user", "content": prompt},
                 ],
             )
-            comment = response.choices[0].message.content
+            raw = response.choices[0].message.content
+            parsed = json.loads(raw)
+            description = parsed.get("description", "")
+            explaining = parsed.get("explaining", "")
+        except json.JSONDecodeError:
+            logger.warning(f"Signal comment JSON parse failed for {unit}/{signal}, using raw text")
+            description = raw if raw else "[Diagnóstico no disponible]"
+            explaining = ""
         except Exception as e:
             logger.error(f"Signal comment failed for {unit}/{signal}: {e}")
-            comment = f"[Diagnosis unavailable: {e}]"
+            description = f"[Diagnóstico no disponible: {e}]"
+            explaining = ""
 
         records.append({
             "unit": unit,
@@ -137,7 +147,8 @@ def generate_signal_comments(
             "system": system,
             "status": worst_status,
             "risk_score": max_risk,
-            "comment": comment,
+            "description": description,
+            "explaining": explaining,
             "techniques_referenced": json.dumps(techniques),
             "evaluation_timestamp": now,
             "model_used": config.model,
@@ -190,24 +201,25 @@ def generate_system_comments(
         for _, sig_row in relevant_signals.iterrows():
             signal_context_lines.append(
                 f"- **{sig_row['signal']}** ({sig_row['status']}, risk={sig_row['risk_score']:.0f}): "
-                f"{sig_row['comment']}"
+                f"{sig_row['description']} — {sig_row['explaining']}"
             )
             signals_referenced.append(sig_row["signal"])
 
-        signal_context = "\n".join(signal_context_lines) if signal_context_lines else "No individual signal diagnoses available."
+        signal_context = "\n".join(signal_context_lines) if signal_context_lines else "Sin diagnósticos individuales de señal disponibles."
 
         prompt = (
-            f"You are a mining equipment system health analyst.\n\n"
-            f"**System**: {system}\n"
-            f"**Unit**: {unit}\n"
-            f"**System Status**: {sys_row['system_status']}\n"
-            f"**System Score**: {sys_row['system_score']:.1f}/100\n"
-            f"**Techniques Triggered**: {sys_row.get('n_techniques_triggered', 0)}\n\n"
-            f"**Signal-Level Diagnoses**:\n{signal_context}\n\n"
-            f"Based on the signal diagnoses above:\n"
-            f"1. Summarize what is remarkable about this system (2-3 sentences)\n"
-            f"2. Provide one recommended action\n\n"
-            f"Be factual. Reference specific signals by name."
+            f"Eres un analista de salud de sistemas de equipos mineros.\n\n"
+            f"**Sistema**: {system}\n"
+            f"**Unidad**: {unit}\n"
+            f"**Estado del sistema**: {sys_row['system_status']}\n"
+            f"**Puntaje del sistema**: {sys_row['system_score']:.1f}/100\n"
+            f"**Técnicas activadas**: {sys_row.get('n_techniques_triggered', 0)}\n\n"
+            f"**Diagnósticos a nivel de señal**:\n{signal_context}\n\n"
+            f"Basándote en los diagnósticos de señales anteriores, responde en formato JSON con tres campos:\n"
+            f"- \"description\": Una oración breve (máx 20 palabras) resumiendo el estado del sistema.\n"
+            f"- \"explaining\": Un párrafo detallado (2-4 oraciones) explicando qué se encontró y por qué es relevante. Referencia señales específicas por nombre.\n"
+            f"- \"recommended_action\": Una acción de mantenimiento recomendada en una oración.\n\n"
+            f"Responde SOLO con el JSON, sin texto adicional."
         )
 
         try:
@@ -218,22 +230,25 @@ def generate_system_comments(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a concise system health analyst. Respond with a diagnosis paragraph followed by 'Recommended action:' on a new line.",
+                        "content": "Eres un analista conciso de salud de sistemas. Responde siempre en español con observaciones factuales. Responde únicamente en formato JSON válido.",
                     },
                     {"role": "user", "content": prompt},
                 ],
             )
-            full_response = response.choices[0].message.content
+            raw = response.choices[0].message.content
+            parsed = json.loads(raw)
+            description = parsed.get("description", "")
+            explaining = parsed.get("explaining", "")
+            recommended_action = parsed.get("recommended_action", None)
+        except json.JSONDecodeError:
+            logger.warning(f"System comment JSON parse failed for {unit}/{system}, using raw text")
+            description = raw if raw else "[Diagnóstico no disponible]"
+            explaining = ""
+            recommended_action = None
         except Exception as e:
             logger.error(f"System comment failed for {unit}/{system}: {e}")
-            full_response = f"[Diagnosis unavailable: {e}]"
-
-        if "Recommended action:" in full_response:
-            parts = full_response.split("Recommended action:", 1)
-            comment = parts[0].strip()
-            recommended_action = parts[1].strip()
-        else:
-            comment = full_response
+            description = f"[Diagnóstico no disponible: {e}]"
+            explaining = ""
             recommended_action = None
 
         records.append({
@@ -241,7 +256,8 @@ def generate_system_comments(
             "system": system,
             "system_status": sys_row["system_status"],
             "system_score": sys_row["system_score"],
-            "comment": comment,
+            "description": description,
+            "explaining": explaining,
             "signals_referenced": json.dumps(signals_referenced),
             "recommended_action": recommended_action,
             "evaluation_timestamp": now,
@@ -294,25 +310,26 @@ def generate_unit_comments(
         for _, sys_row in relevant_systems.iterrows():
             system_context_lines.append(
                 f"- **{sys_row['system']}** ({sys_row['system_status']}, "
-                f"score={sys_row['system_score']:.0f}): {sys_row['comment']}"
+                f"score={sys_row['system_score']:.0f}): {sys_row['description']} — {sys_row['explaining']}"
             )
             systems_referenced.append(sys_row["system"])
 
-        system_context = "\n".join(system_context_lines) if system_context_lines else "No system-level diagnoses available."
+        system_context = "\n".join(system_context_lines) if system_context_lines else "Sin diagnósticos a nivel de sistema disponibles."
         urgency = _classify_urgency(unit_row["priority_score"])
 
         prompt = (
-            f"You are a fleet health analyst for mining equipment.\n\n"
-            f"**Unit**: {unit}\n"
-            f"**Overall Status**: {unit_row['overall_status']}\n"
-            f"**Priority Score**: {unit_row['priority_score']:.1f}\n"
-            f"**Anormal Systems**: {unit_row.get('n_anormal_systems', 0)}\n"
-            f"**Alerta Systems**: {unit_row.get('n_alerta_systems', 0)}\n\n"
-            f"**System-Level Diagnoses**:\n{system_context}\n\n"
-            f"Provide:\n"
-            f"1. A 2-3 sentence executive assessment of this unit's condition\n"
-            f"2. One top-priority recommended action\n\n"
-            f"Focus on urgency and actionability for a maintenance planning meeting."
+            f"Eres un analista de salud de flota de equipos mineros.\n\n"
+            f"**Unidad**: {unit}\n"
+            f"**Estado general**: {unit_row['overall_status']}\n"
+            f"**Puntaje de prioridad**: {unit_row['priority_score']:.1f}\n"
+            f"**Sistemas Anormales**: {unit_row.get('n_anormal_systems', 0)}\n"
+            f"**Sistemas en Alerta**: {unit_row.get('n_alerta_systems', 0)}\n\n"
+            f"**Diagnósticos a nivel de sistema**:\n{system_context}\n\n"
+            f"Responde en formato JSON con tres campos:\n"
+            f"- \"description\": Una oración breve (máx 20 palabras) resumiendo la condición general de la unidad.\n"
+            f"- \"explaining\": Un párrafo detallado (2-4 oraciones) con la evaluación ejecutiva de la condición. Enfócate en urgencia y accionabilidad para una reunión de planificación de mantenimiento.\n"
+            f"- \"recommended_action\": La acción de mayor prioridad recomendada en una oración.\n\n"
+            f"Responde SOLO con el JSON, sin texto adicional."
         )
 
         try:
@@ -323,29 +340,33 @@ def generate_unit_comments(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a fleet health analyst. Respond with an assessment paragraph followed by 'Recommended action:' on a new line.",
+                        "content": "Eres un analista de salud de flota. Responde siempre en español con evaluaciones factuales y accionables. Responde únicamente en formato JSON válido.",
                     },
                     {"role": "user", "content": prompt},
                 ],
             )
-            full_response = response.choices[0].message.content
+            raw = response.choices[0].message.content
+            parsed = json.loads(raw)
+            description = parsed.get("description", "")
+            explaining = parsed.get("explaining", "")
+            recommended_action = parsed.get("recommended_action", None)
+        except json.JSONDecodeError:
+            logger.warning(f"Unit comment JSON parse failed for {unit}, using raw text")
+            description = raw if raw else "[Diagnóstico no disponible]"
+            explaining = ""
+            recommended_action = None
         except Exception as e:
             logger.error(f"Unit comment failed for {unit}: {e}")
-            full_response = f"[Diagnosis unavailable: {e}]"
-
-        if "Recommended action:" in full_response:
-            parts = full_response.split("Recommended action:", 1)
-            comment = parts[0].strip()
-            recommended_action = parts[1].strip()
-        else:
-            comment = full_response
+            description = f"[Diagnóstico no disponible: {e}]"
+            explaining = ""
             recommended_action = None
 
         records.append({
             "unit": unit,
             "overall_status": unit_row["overall_status"],
             "priority_score": unit_row["priority_score"],
-            "comment": comment,
+            "description": description,
+            "explaining": explaining,
             "systems_referenced": json.dumps(systems_referenced),
             "urgency": urgency,
             "recommended_action": recommended_action,

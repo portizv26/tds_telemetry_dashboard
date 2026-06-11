@@ -38,7 +38,7 @@ from src.utils.data_utils import (
     get_all_systems,
     get_system_signals,
 )
-from src.techniques.deviation import compute_limits, apply_deviation_analysis, summarize_deviation
+from src.techniques.deviation import compute_limits, apply_deviation_analysis, summarize_deviation, persist_limits
 from src.techniques.events import run_event_analysis
 from src.techniques.trend import run_trend_analysis
 from src.techniques.distribution import run_distribution_analysis
@@ -193,6 +193,9 @@ class TelemetryPipeline:
             self.df_preprocessed, self.signal_registry, self.config.deviation
         )
         logger.info(f"  Computed limits for {len(self.limits)} model specifications")
+
+        # Persist limits to Silver layer
+        persist_limits(self.limits, self.config.limits_path, datetime.utcnow())
 
     # ─── Phase 4: Deviation ────────────────────────────────────────────────
 

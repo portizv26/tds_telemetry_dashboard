@@ -225,10 +225,12 @@ def load_ai_comments(cache_key):
 
 ### Display Rules
 
-- If no AI comment exists for an entity (Normal status), show "Operating within normal parameters."
+- If no AI comment exists for an entity (Normal status), show "Operando dentro de parámetros normales."
+- All AI text (`description`, `explaining`, `recommended_action`) is in **Spanish**
+- `description` is shown as a headline/summary; `explaining` is shown expanded or on-demand
 - Unit comments include an `urgency` field → used to style the comment card (green/orange/red border)
-- System comments include `recommended_action` → shown as a callout below the diagnostic text
-- Signal comments are shown inline above the time series plot for context
+- System and unit comments include `recommended_action` → shown as a callout below the diagnostic text
+- Signal comments show `description` inline above the time series plot; `explaining` available on expand
 
 ---
 

@@ -102,9 +102,9 @@ class LLMConfig:
 class AICommentsConfig:
     model: str = "gpt-4o-mini"
     temperature: float = 0.2
-    max_tokens_signal: int = 300
-    max_tokens_system: int = 500
-    max_tokens_unit: int = 600
+    max_tokens_signal: int = 400
+    max_tokens_system: int = 600
+    max_tokens_unit: int = 700
     rate_limit_delay: float = 0.5
     skip_normal: bool = True
     batch_size: int = 5
@@ -134,6 +134,10 @@ class PipelineConfig:
     @property
     def baselines_path(self) -> Path:
         return self.silver_path / self.client / "baselines"
+
+    @property
+    def limits_path(self) -> Path:
+        return self.silver_path / self.client / "limits"
 
     @property
     def signal_registry_path(self) -> Path:
