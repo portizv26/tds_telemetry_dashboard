@@ -15,3 +15,6 @@ side_projects/
 # outputs and logs
 outputs/
 logs/
+
+*.log
+*.json

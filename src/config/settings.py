@@ -99,6 +99,19 @@ class LLMConfig:
 
 
 @dataclass
+class AICommentsConfig:
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.2
+    max_tokens_signal: int = 300
+    max_tokens_system: int = 500
+    max_tokens_unit: int = 600
+    rate_limit_delay: float = 0.5
+    skip_normal: bool = True
+    batch_size: int = 5
+    api_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
+
+
+@dataclass
 class PipelineConfig:
     """Top-level configuration aggregating all sub-configs."""
     client: str = "cda"
@@ -112,6 +125,7 @@ class PipelineConfig:
     autoencoder: AutoencoderConfig = field(default_factory=AutoencoderConfig)
     aggregation: AggregationConfig = field(default_factory=AggregationConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    ai_comments: AICommentsConfig = field(default_factory=AICommentsConfig)
 
     @property
     def telemetry_path(self) -> Path:
@@ -188,6 +202,10 @@ def build_config(client: str = "cda") -> PipelineConfig:
             for k, v in overrides["llm"].items():
                 if hasattr(config.llm, k):
                     setattr(config.llm, k, v)
+        if "ai_comments" in overrides:
+            for k, v in overrides["ai_comments"].items():
+                if hasattr(config.ai_comments, k):
+                    setattr(config.ai_comments, k, v)
 
     logger.info(f"Configuration built for client={client}")
     return config

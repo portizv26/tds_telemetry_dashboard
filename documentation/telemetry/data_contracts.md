@@ -448,7 +448,94 @@ llm:
 
 ---
 
-### 6. System Health
+### 6. AI Comments — Signal Level
+
+**Purpose**: Structured AI diagnostic comments per signal, explaining what technique evidence reveals.
+
+**Location**: `data/telemetry/golden/{client}/ai_comments/year={YYYY}/week={WW}/`
+
+**File Pattern**: `signal_comments.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `signal` | string | No | Signal name |
+| `system` | string | No | System name |
+| `status` | string | No | Aggregated signal status |
+| `risk_score` | float64 | No | Signal risk score at time of diagnosis |
+| `comment` | string | No | AI-generated diagnostic comment |
+| `techniques_referenced` | string | No | JSON array of technique names that informed the diagnosis |
+| `evaluation_timestamp` | datetime64[ns] | No | When diagnosis was generated |
+| `model_used` | string | No | LLM model identifier |
+
+**Constraints**:
+- Only signals with non-Normal status are included
+- `comment` max length: ~300 tokens (concise, factual)
+- `techniques_referenced` contains only techniques that reported non-Normal for this signal
+
+---
+
+### 7. AI Comments — System Level
+
+**Purpose**: Synthesized AI diagnostic at system level, combining signal-level findings.
+
+**Location**: `data/telemetry/golden/{client}/ai_comments/year={YYYY}/week={WW}/`
+
+**File Pattern**: `system_comments.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `system` | string | No | System name |
+| `system_status` | string | No | System health status |
+| `system_score` | float64 | No | System health score at time of diagnosis |
+| `comment` | string | No | AI-generated system diagnostic |
+| `signals_referenced` | string | No | JSON array of signal names discussed |
+| `recommended_action` | string | Yes | Suggested maintenance action |
+| `evaluation_timestamp` | datetime64[ns] | No | When diagnosis was generated |
+| `model_used` | string | No | LLM model identifier |
+
+**Constraints**:
+- Only systems with non-Normal status are included
+- Uses signal-level comments as input context (bottom-up)
+- `recommended_action` is a single actionable sentence
+
+---
+
+### 8. AI Comments — Unit Level
+
+**Purpose**: Executive-level AI diagnostic summarizing the unit condition.
+
+**Location**: `data/telemetry/golden/{client}/ai_comments/year={YYYY}/week={WW}/`
+
+**File Pattern**: `unit_comments.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `overall_status` | string | No | Unit overall status |
+| `priority_score` | float64 | No | Unit priority score at time of diagnosis |
+| `comment` | string | No | AI-generated executive assessment |
+| `systems_referenced` | string | No | JSON array of system names discussed |
+| `urgency` | string | No | "routine", "monitor", "schedule_inspection", "immediate" |
+| `recommended_action` | string | Yes | Top-priority maintenance recommendation |
+| `evaluation_timestamp` | datetime64[ns] | No | When diagnosis was generated |
+| `model_used` | string | No | LLM model identifier |
+
+**Constraints**:
+- Only units with non-Normal status are included
+- Uses system-level comments as input context (bottom-up)
+- `urgency` maps priority_score ranges to action timelines
+
+---
+
+### 9. System Health
 
 **Purpose**: Aggregated system-level health assessments combining all techniques.
 
@@ -475,7 +562,7 @@ llm:
 
 ---
 
-### 7. Unit Health
+### 10. Unit Health
 
 **Purpose**: Top-level fleet ranking and unit health prioritization.
 
@@ -500,7 +587,7 @@ llm:
 
 ---
 
-### 8. Autoencoder Models (Artifacts)
+### 11. Autoencoder Models (Artifacts)
 
 **Purpose**: Persisted trained LSTM autoencoder models and associated scalers.
 
@@ -586,12 +673,15 @@ llm:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         GOLDEN LAYER (OUTPUT)                                 │
 │                                                                              │
-│  technique_results/         │  system_health/    │  unit_health/             │
+│  technique_results/         │  ai_comments/      │  system_health/           │
 │  ├── deviation/             │  year=YYYY/        │  year=YYYY/               │
 │  ├── events/                │  week=WW/          │  week=WW/                 │
-│  ├── trend/                 │                    │                            │
-│  ├── distribution/          │  models/           │                            │
-│  └── autoencoder/           │  autoencoder/      │                            │
+│  ├── trend/                 │  ├── signal_       │                            │
+│  ├── distribution/          │  │   comments      │  unit_health/             │
+│  └── autoencoder/           │  ├── system_       │  year=YYYY/               │
+│                             │  │   comments      │  week=WW/                 │
+│                             │  └── unit_         │                            │
+│                             │      comments      │  models/autoencoder/      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -658,6 +748,45 @@ class UnitHealthSchema(BaseModel):
     evaluation_timestamp: datetime
     baseline_version: str
     executive_summary: Optional[str] = None
+
+
+class SignalCommentSchema(BaseModel):
+    """Validates an AI signal-level comment row."""
+    unit: str
+    signal: str
+    system: str
+    status: str = Field(pattern=r'^(Alerta|Anormal|InsufficientData)$')
+    risk_score: float = Field(ge=0, le=100)
+    comment: str = Field(min_length=1)
+    techniques_referenced: str  # JSON array
+    evaluation_timestamp: datetime
+    model_used: str
+
+
+class SystemCommentSchema(BaseModel):
+    """Validates an AI system-level comment row."""
+    unit: str
+    system: str
+    system_status: str = Field(pattern=r'^(Alerta|Anormal|InsufficientData)$')
+    system_score: float = Field(ge=0, le=100)
+    comment: str = Field(min_length=1)
+    signals_referenced: str  # JSON array
+    recommended_action: Optional[str] = None
+    evaluation_timestamp: datetime
+    model_used: str
+
+
+class UnitCommentSchema(BaseModel):
+    """Validates an AI unit-level comment row."""
+    unit: str
+    overall_status: str = Field(pattern=r'^(Alerta|Anormal|InsufficientData)$')
+    priority_score: float = Field(ge=0)
+    comment: str = Field(min_length=1)
+    systems_referenced: str  # JSON array
+    urgency: str = Field(pattern=r'^(routine|monitor|schedule_inspection|immediate)$')
+    recommended_action: Optional[str] = None
+    evaluation_timestamp: datetime
+    model_used: str
 ```
 
 ### Runtime Validation Pattern
@@ -709,11 +838,12 @@ def validate_output(df: pd.DataFrame, schema_class: type, sample_size: int = 100
 | Output Type | Retention | Rationale |
 |-------------|-----------|-----------|
 | Technique results | 1 year | Sufficient for trend backtesting |
+| AI Comments | 2 years | Historical diagnostic tracking, paired with health |
 | System/Unit health | 2 years | Historical tracking and comparison |
 | Events | 1 year | Operational relevance window |
 | Baselines | All versions | Minimal storage, full auditability |
 | Models | Last 3 versions | Rollback capability |
-| LLM explanations | Stored with health outputs | Paired with assessments |
+| LLM explanations | Stored with health outputs | Paired with assessments (legacy) |
 
 ### Backward Compatibility
 

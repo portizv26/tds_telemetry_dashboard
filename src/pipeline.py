@@ -11,8 +11,9 @@ Execution flow:
   7. Run distribution shift analysis
   8. Run autoencoder inference (depends on deviation for training)
   9. Aggregate results (Signal → System → Unit)
-  10. Generate LLM explanations
-  11. Persist outputs to Golden layer
+  10. AI Diagnosis (Signal → System → Unit comments)
+  11. Generate LLM explanations (legacy, optional)
+  12. Persist outputs to Golden layer
 """
 
 import logging
@@ -42,6 +43,7 @@ from src.techniques.events import run_event_analysis
 from src.techniques.trend import run_trend_analysis
 from src.techniques.distribution import run_distribution_analysis
 from src.techniques.aggregation import run_aggregation
+from src.techniques.ai_comments import run_ai_diagnosis
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +83,16 @@ class TelemetryPipeline:
         self.distribution_results = pd.DataFrame()
         self.system_health = pd.DataFrame()
         self.unit_health = pd.DataFrame()
+        self.ai_comments = {"signal": pd.DataFrame(), "system": pd.DataFrame(), "unit": pd.DataFrame()}
 
-    def run(self, skip_autoencoder: bool = False, skip_llm: bool = False) -> dict:
+    def run(self, skip_autoencoder: bool = False, skip_llm: bool = False, skip_ai_comments: bool = False) -> dict:
         """
         Execute the full pipeline.
 
         Parameters:
             skip_autoencoder: Skip LSTM training/inference (faster, for testing)
             skip_llm: Skip LLM explanation generation (saves API costs)
+            skip_ai_comments: Skip AI Diagnosis generation (saves API costs)
 
         Returns:
             Summary dict with counts and statuses.
@@ -126,11 +130,15 @@ class TelemetryPipeline:
         # Phase 9: Aggregation
         self._run_aggregation()
 
-        # Phase 10: LLM Explanations (optional)
+        # Phase 10: AI Diagnosis (optional)
+        if not skip_ai_comments:
+            self._run_ai_diagnosis()
+
+        # Phase 11: LLM Explanations (legacy, optional)
         if not skip_llm:
             self._run_llm_explanations()
 
-        # Phase 11: Persist outputs
+        # Phase 12: Persist outputs
         self._persist_outputs()
 
         elapsed = (datetime.utcnow() - start_time).total_seconds()
@@ -323,11 +331,38 @@ class TelemetryPipeline:
 
         return pd.concat(frames, ignore_index=True)
 
-    # ─── Phase 10: LLM Explanations ───────────────────────────────────────
+    # ─── Phase 10: AI Diagnosis ─────────────────────────────────────────
+
+    def _run_ai_diagnosis(self):
+        """Generate structured AI diagnostic comments (Signal → System → Unit)."""
+        logger.info("Phase 10: Running AI Diagnosis...")
+
+        if self.system_health.empty or not self.config.ai_comments.api_key:
+            logger.info("  Skipping AI Diagnosis (no results or no API key)")
+            return
+
+        try:
+            combined = self._combine_technique_results()
+
+            self.ai_comments = run_ai_diagnosis(
+                technique_results=combined,
+                system_health=self.system_health,
+                unit_health=self.unit_health,
+                signal_registry=self.signal_registry,
+                config=self.config.ai_comments,
+            )
+
+            total = sum(len(df) for df in self.ai_comments.values())
+            logger.info(f"  AI Diagnosis complete: {total} comments generated")
+
+        except Exception as e:
+            logger.error(f"  AI Diagnosis failed: {e}")
+
+    # ─── Phase 11: LLM Explanations (legacy) ─────────────────────────────
 
     def _run_llm_explanations(self):
-        """Generate LLM explanations for non-Normal units."""
-        logger.info("Phase 10: Generating LLM explanations...")
+        """Generate LLM explanations for non-Normal units (legacy)."""
+        logger.info("Phase 11: Generating LLM explanations (legacy)...")
 
         if self.unit_health.empty or not self.config.llm.api_key:
             logger.info("  Skipping LLM (no results or no API key)")
@@ -378,11 +413,11 @@ class TelemetryPipeline:
         except Exception as e:
             logger.error(f"  LLM explanations failed: {e}")
 
-    # ─── Phase 11: Persist ─────────────────────────────────────────────────
+    # ─── Phase 12: Persist ─────────────────────────────────────────────────
 
     def _persist_outputs(self):
         """Save outputs to Golden layer."""
-        logger.info("Phase 11: Persisting outputs...")
+        logger.info("Phase 12: Persisting outputs...")
 
         output_base = self.config.output_path
         now = datetime.utcnow()
@@ -425,6 +460,18 @@ class TelemetryPipeline:
             path.mkdir(parents=True, exist_ok=True)
             self.unit_health.to_parquet(path / "unit_health.parquet", index=False)
 
+        # AI Comments
+        ai_path = output_base / "ai_comments" / f"year={year}" / f"week={week}"
+        if not self.ai_comments["signal"].empty:
+            ai_path.mkdir(parents=True, exist_ok=True)
+            self.ai_comments["signal"].to_parquet(ai_path / "signal_comments.parquet", index=False)
+        if not self.ai_comments["system"].empty:
+            ai_path.mkdir(parents=True, exist_ok=True)
+            self.ai_comments["system"].to_parquet(ai_path / "system_comments.parquet", index=False)
+        if not self.ai_comments["unit"].empty:
+            ai_path.mkdir(parents=True, exist_ok=True)
+            self.ai_comments["unit"].to_parquet(ai_path / "unit_comments.parquet", index=False)
+
         logger.info(f"  Outputs saved to {output_base}")
 
     # ─── Summary ───────────────────────────────────────────────────────────
@@ -443,6 +490,9 @@ class TelemetryPipeline:
             "distribution_results": len(self.distribution_results),
             "system_assessments": len(self.system_health),
             "unit_assessments": len(self.unit_health),
+            "ai_comments_signal": len(self.ai_comments["signal"]),
+            "ai_comments_system": len(self.ai_comments["system"]),
+            "ai_comments_unit": len(self.ai_comments["unit"]),
             "units_anormal": int((self.unit_health["overall_status"] == "Anormal").sum()) if not self.unit_health.empty else 0,
             "units_alerta": int((self.unit_health["overall_status"] == "Alerta").sum()) if not self.unit_health.empty else 0,
         }
