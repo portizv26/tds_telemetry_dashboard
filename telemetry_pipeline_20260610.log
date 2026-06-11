@@ -1,0 +1,59 @@
+2026-06-10 16:52:13 [INFO] __main__: Telemetry Health Evaluation Pipeline v1.0.0
+2026-06-10 16:52:13 [INFO] src.config.settings: Configuration built for client=cda
+2026-06-10 16:52:13 [INFO] src.pipeline: ============================================================
+2026-06-10 16:52:13 [INFO] src.pipeline: Pipeline started: client=cda
+2026-06-10 16:52:13 [INFO] src.pipeline: ============================================================
+2026-06-10 16:52:13 [INFO] src.pipeline: Phase 1: Loading data and configuration...
+2026-06-10 16:52:13 [ERROR] src.config.settings: Error reading YAML file C:\Users\patri\Coddi\Proyectos\telemetry_dashboard\src\data\telemetry\config\cda\signal_registry.yaml: [Errno 2] No such file or directory: 'C:\\Users\\patri\\Coddi\\Proyectos\\telemetry_dashboard\\src\\data\\telemetry\\config\\cda\\signal_registry.yaml'
+2026-06-10 16:52:36 [INFO] __main__: Telemetry Health Evaluation Pipeline v1.0.0
+2026-06-10 16:52:36 [INFO] src.config.settings: Configuration built for client=cda
+2026-06-10 16:52:36 [INFO] src.pipeline: ============================================================
+2026-06-10 16:52:36 [INFO] src.pipeline: Pipeline started: client=cda
+2026-06-10 16:52:36 [INFO] src.pipeline: ============================================================
+2026-06-10 16:52:36 [INFO] src.pipeline: Phase 1: Loading data and configuration...
+2026-06-10 16:52:58 [INFO] src.utils.data_utils: Loaded 5791166 rows from 74 files
+2026-06-10 16:52:59 [INFO] src.pipeline:   Loaded 5791166 rows, 11 units
+2026-06-10 16:52:59 [INFO] src.pipeline: Phase 2: Preprocessing...
+2026-06-10 16:53:02 [WARNING] src.pipeline:   Data issue: 252975 duplicate (Unit, Fecha) pairs
+2026-06-10 16:53:02 [WARNING] src.pipeline:   Data issue: Signals with >50% missing: ['AmbAirTemp', 'CompInPres1', 'CompInPres2', 'EngOilFltr']
+2026-06-10 16:53:05 [WARNING] src.utils.data_utils: Dropped 503449 rows with unmapped units
+2026-06-10 16:53:05 [INFO] src.pipeline:   Preprocessed: 5287717 rows
+2026-06-10 16:53:05 [INFO] src.pipeline: Phase 3: Loading/computing baselines...
+2026-06-10 16:53:05 [INFO] src.pipeline:   Using existing baseline: 20260225
+2026-06-10 16:53:21 [INFO] src.techniques.deviation: Computed limits: 3 models, 59 model-signal combinations
+2026-06-10 16:53:21 [INFO] src.pipeline:   Computed limits for 3 model specifications
+2026-06-10 16:53:21 [INFO] src.pipeline: Phase 4: Running deviation analysis...
+2026-06-10 17:02:10 [INFO] src.pipeline:   Deviation: 220 results, 5 Anormal
+2026-06-10 17:02:10 [INFO] src.pipeline: Phase 5: Running event analysis...
+2026-06-10 17:13:19 [INFO] src.techniques.events: Event analysis complete: 1537225 events (74801 warnings)
+2026-06-10 17:13:19 [INFO] src.pipeline:   Events: 1537225 total, 74801 warnings
+2026-06-10 17:13:19 [INFO] src.pipeline: Phase 6: Running trend analysis...
+2026-06-10 17:13:31 [INFO] src.techniques.trend: Trend analysis complete: 594 results, 0 Anormal
+2026-06-10 17:13:31 [INFO] src.pipeline:   Trends: 594 results, 519 significant
+2026-06-10 17:13:31 [INFO] src.pipeline: Phase 7: Running distribution shift analysis...
+2026-06-10 17:14:04 [INFO] src.techniques.distribution: Distribution analysis complete: 1634 results, 1406 significant
+2026-06-10 17:14:04 [INFO] src.pipeline:   Distribution: 1634 results, 1406 significant
+2026-06-10 17:14:04 [INFO] src.pipeline: Phase 9: Running aggregation...
+2026-06-10 17:14:04 [INFO] src.techniques.aggregation: Aggregation complete: 40 system assessments, 10 unit assessments
+2026-06-10 17:14:04 [INFO] src.pipeline:   Aggregation: 40 systems, 10 units
+2026-06-10 17:14:04 [INFO] src.pipeline: Phase 11: Persisting outputs...
+2026-06-10 17:14:05 [INFO] src.pipeline:   Outputs saved to C:\Users\patri\Coddi\Proyectos\telemetry_dashboard\data\telemetry\golden\cda
+2026-06-10 17:14:05 [INFO] src.pipeline: Pipeline complete in 1288.8s
+2026-06-10 17:14:05 [INFO] __main__: 
+============================================================
+2026-06-10 17:14:05 [INFO] __main__: EXECUTION SUMMARY
+2026-06-10 17:14:05 [INFO] __main__: ============================================================
+2026-06-10 17:14:05 [INFO] __main__:   client: cda
+2026-06-10 17:14:05 [INFO] __main__:   elapsed_seconds: 1288.8
+2026-06-10 17:14:05 [INFO] __main__:   input_rows: 5791166
+2026-06-10 17:14:05 [INFO] __main__:   units_processed: 10
+2026-06-10 17:14:05 [INFO] __main__:   baseline_version: 20260225
+2026-06-10 17:14:05 [INFO] __main__:   deviation_results: 220
+2026-06-10 17:14:05 [INFO] __main__:   events_detected: 1537225
+2026-06-10 17:14:05 [INFO] __main__:   trend_results: 594
+2026-06-10 17:14:05 [INFO] __main__:   distribution_results: 1634
+2026-06-10 17:14:05 [INFO] __main__:   system_assessments: 40
+2026-06-10 17:14:05 [INFO] __main__:   unit_assessments: 10
+2026-06-10 17:14:05 [INFO] __main__:   units_anormal: 5
+2026-06-10 17:14:05 [INFO] __main__:   units_alerta: 4
+2026-06-10 17:14:05 [INFO] __main__: Summary written to pipeline_summary_20260610_211405.json

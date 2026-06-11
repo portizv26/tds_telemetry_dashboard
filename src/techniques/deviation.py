@@ -207,7 +207,7 @@ def apply_deviation_analysis(
 
     labels = pd.concat(result_frames, axis=1)
     # Group duplicate columns (same signal from different models)
-    labels = labels.groupby(level=0, axis=1).first()
+    labels = labels.T.groupby(level=0).first().T
 
     out = pd.concat([df, labels], axis=1)
     out.set_index([UNIT_COLNAME, TIME_COLNAME], inplace=True)
