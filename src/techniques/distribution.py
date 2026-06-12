@@ -10,6 +10,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from scipy.stats import mannwhitneyu
 
 from src.config.settings import (
@@ -152,7 +153,7 @@ def run_distribution_analysis(
 
     records = []
 
-    for unit in units:
+    for unit in tqdm(units, desc="Distribution analysis", unit="unit"):
         try:
             unit_data = work_df.loc[unit]
         except KeyError:

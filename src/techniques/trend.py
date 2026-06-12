@@ -10,6 +10,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from scipy import stats
 from sklearn.linear_model import LinearRegression
 
@@ -125,7 +126,7 @@ def run_trend_analysis(
     units = work_df.index.get_level_values(0).unique()
     records = []
 
-    for unit in units:
+    for unit in tqdm(units, desc="Trend analysis", unit="unit"):
         try:
             unit_data = work_df.loc[unit]
         except KeyError:

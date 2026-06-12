@@ -10,6 +10,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from src.config.settings import (
     UNIT_COLNAME,
@@ -205,6 +206,42 @@ def _classify_value(value: float, state: str, thresholds: dict, risk_direction: 
         return "normal"
 
 
+def _classify_vectorized(values: np.ndarray, states: np.ndarray, thresholds: dict, risk_direction: str) -> np.ndarray:
+    """Classify an entire array of values into risk levels using vectorized operations."""
+    result = np.full(len(values), "unknown", dtype=object)
+
+    for state, t in thresholds.items():
+        state_mask = states == state
+        if not state_mask.any():
+            continue
+
+        v = values[state_mask]
+        valid = ~pd.isna(v)
+        classified = np.full(state_mask.sum(), "unknown", dtype=object)
+
+        if risk_direction == "high":
+            classified[valid] = "normal"
+            classified[valid & (v >= t["alert"][0])] = "alert"
+            classified[valid & (v >= t["anormal"][0])] = "anormal"
+            classified[valid & (v >= t["critical"][0])] = "critical"
+
+        elif risk_direction == "low":
+            classified[valid] = "normal"
+            classified[valid & (v <= t["alert"][0])] = "alert"
+            classified[valid & (v <= t["anormal"][0])] = "anormal"
+            classified[valid & (v <= t["critical"][0])] = "critical"
+
+        else:  # both
+            classified[valid] = "normal"
+            classified[valid & ((v <= t["alert"][0]) | (v >= t["alert"][1]))] = "alert"
+            classified[valid & ((v <= t["anormal"][0]) | (v >= t["anormal"][1]))] = "anormal"
+            classified[valid & ((v <= t["critical"][0]) | (v >= t["critical"][1]))] = "critical"
+
+        result[state_mask] = classified
+
+    return result
+
+
 def apply_deviation_analysis(
     df: pd.DataFrame,
     limits: dict,
@@ -222,49 +259,51 @@ def apply_deviation_analysis(
         DataFrame with risk_level_{signal} columns added, indexed by (Unit, Fecha).
     """
     features = get_features_for_computation(signal_registry)
-    result_frames = []
 
-    for model_spec in df["model_specification"].unique():
-        if model_spec not in limits:
-            continue
+    # Pre-allocate risk level columns directly on a copy
+    risk_col_names = []
+    signals_to_process = [
+        s for s in signal_registry["signals"]
+        if s.get("threshold_compute", False)
+    ]
+    for signal_meta in signals_to_process:
+        col_name = f"risk_level_{signal_meta['name']}"
+        risk_col_names.append(col_name)
 
-        model_mask = df["model_specification"] == model_spec
-        model_df = df.loc[model_mask]
+    # Initialize all risk columns as "unknown"
+    out = df.copy()
+    for col_name in risk_col_names:
+        out[col_name] = "unknown"
 
-        for signal_meta in signal_registry["signals"]:
-            feature = signal_meta["name"]
-            if not signal_meta.get("threshold_compute", False):
-                continue
-            if feature not in limits[model_spec]:
-                continue
-            if feature not in model_df.columns:
-                continue
+    model_specs = [m for m in df["model_specification"].unique() if m in limits]
+    total_steps = len(model_specs) * len(signals_to_process)
 
-            risk_dir = signal_meta["risk_direction"]
-            thresholds = _get_thresholds(limits[model_spec], feature, risk_dir)
+    with tqdm(total=total_steps, desc="Deviation analysis", unit="signal") as pbar:
+        for model_spec in model_specs:
+            model_mask = df["model_specification"] == model_spec
+            model_idx = df.index[model_mask]
+            states_arr = df.loc[model_mask, STATE_COLNAME].values
 
-            col_name = f"risk_level_{feature}"
-            # Vectorized classification using numpy
-            risk_levels = np.array([
-                _classify_value(v, s, thresholds, risk_dir)
-                for v, s in zip(model_df[feature].values, model_df[STATE_COLNAME].values)
-            ])
+            for signal_meta in signals_to_process:
+                feature = signal_meta["name"]
+                if feature not in limits[model_spec]:
+                    pbar.update(1)
+                    continue
+                if feature not in df.columns:
+                    pbar.update(1)
+                    continue
 
-            label_df = pd.DataFrame(
-                {col_name: risk_levels},
-                index=model_df.index,
-            )
-            result_frames.append(label_df)
+                risk_dir = signal_meta["risk_direction"]
+                thresholds = _get_thresholds(limits[model_spec], feature, risk_dir)
 
-    if not result_frames:
-        logger.warning("No deviation results produced")
-        return df.set_index([UNIT_COLNAME, TIME_COLNAME])
+                col_name = f"risk_level_{feature}"
+                risk_levels = _classify_vectorized(
+                    df.loc[model_mask, feature].values, states_arr, thresholds, risk_dir
+                )
 
-    labels = pd.concat(result_frames, axis=1)
-    # Group duplicate columns (same signal from different models)
-    labels = labels.T.groupby(level=0).first().T
+                out.loc[model_idx, col_name] = risk_levels
+                pbar.update(1)
 
-    out = pd.concat([df, labels], axis=1)
     out.set_index([UNIT_COLNAME, TIME_COLNAME], inplace=True)
     return out
 
@@ -275,46 +314,63 @@ def summarize_deviation(
     baseline_version: str,
 ) -> pd.DataFrame:
     """
-    Summarize deviation results into per-unit, per-signal, per-day metrics.
+    Summarize deviation results into per-unit, per-signal metrics.
 
     Returns:
-        DataFrame with risk_score, confidence_score, status per (unit, signal, date).
+        DataFrame with risk_score, confidence_score, status per (unit, signal).
     """
     risk_cols = [c for c in df_labeled.columns if c.startswith("risk_level_")]
     if not risk_cols:
         return pd.DataFrame()
 
-    records = []
     df_reset = df_labeled.reset_index()
+    units = df_reset[UNIT_COLNAME].unique()
 
-    for unit in df_reset[UNIT_COLNAME].unique():
-        unit_df = df_reset[df_reset[UNIT_COLNAME] == unit]
+    # Build signal metadata lookup
+    signal_meta_map = {s["name"]: s for s in signal_registry["signals"]}
 
-        for col in risk_cols:
-            feature = col.replace("risk_level_", "")
-            meta = next((s for s in signal_registry["signals"] if s["name"] == feature), None)
-            if not meta:
+    records = []
+
+    for col in tqdm(risk_cols, desc="Summarizing deviation", unit="signal"):
+        feature = col.replace("risk_level_", "")
+        meta = signal_meta_map.get(feature)
+        if not meta:
+            continue
+
+        # Filter out unknowns once for the whole column
+        valid_mask = df_reset[col] != "unknown"
+        valid_df = df_reset.loc[valid_mask, [UNIT_COLNAME, col]]
+
+        if valid_df.empty:
+            continue
+
+        # Vectorized counts per unit using groupby + value_counts
+        grouped = valid_df.groupby(UNIT_COLNAME)[col].value_counts().unstack(fill_value=0)
+
+        for unit in units:
+            if unit not in grouped.index:
                 continue
 
-            valid_mask = unit_df[col] != "unknown"
-            valid = unit_df.loc[valid_mask, col]
-
-            if len(valid) == 0:
+            counts = grouped.loc[unit]
+            total = int(counts.sum())
+            if total == 0:
                 continue
 
-            total = len(valid)
-            abnormal_pct = ((valid == "anormal").sum() + (valid == "critical").sum()) / total * 100
-            alert_pct = (valid == "alert").sum() / total * 100
-            critical_pct = (valid == "critical").sum() / total * 100
+            alert_count = int(counts.get("alert", 0))
+            anormal_count = int(counts.get("anormal", 0))
+            critical_count = int(counts.get("critical", 0))
 
-            # Risk score: 10% abnormal → 60
+            abnormal_pct = (anormal_count + critical_count) / total * 100
+            alert_pct = alert_count / total * 100
+            critical_pct = critical_count / total * 100
+
             risk_score = min(abnormal_pct * 6, 100)
             if critical_pct > 0:
                 risk_score = min(risk_score * 1.3, 100)
 
             confidence = calculate_confidence(
                 valid_samples=total,
-                expected_samples=1440,  # 24h of minutes
+                expected_samples=1440,
                 baseline_sample_count=1000,
             )
 

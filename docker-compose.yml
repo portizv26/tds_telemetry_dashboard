@@ -1,0 +1,23 @@
+services:
+  pipeline:
+    build: .
+    container_name: telemetry-pipeline
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      # Mount data directories so container reads/writes your local files
+      - ./data/telemetry/silver:/app/data/telemetry/silver
+      - ./data/telemetry/golden:/app/data/telemetry/golden
+      - ./data/telemetry/config:/app/data/telemetry/config
+      # Mount .env for API keys
+      - ./.env:/app/.env:ro
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - TF_CPP_MIN_LOG_LEVEL=2
+    # Override CMD here to pass different arguments per run
+    command: ["--client", "cda"]

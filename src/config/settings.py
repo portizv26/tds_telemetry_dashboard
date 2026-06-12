@@ -47,7 +47,7 @@ class EventConfig:
 @dataclass
 class TrendConfig:
     window_weeks: list = field(default_factory=lambda: [4, 8, 12])
-    rolling_window_minutes: int = 30
+    rolling_window_minutes: int = 60
     p_value_threshold: float = 0.05
     r2_threshold: float = 0.3
     min_data_points: int = 10

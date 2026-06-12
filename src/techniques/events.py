@@ -10,6 +10,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from src.config.settings import (
     UNIT_COLNAME,
@@ -164,7 +165,7 @@ def run_event_analysis(
 
     all_metrics = []
 
-    for feature in features:
+    for feature in tqdm(features, desc="Event analysis", unit="signal"):
         events = identify_events(df_labeled, feature)
         if events.empty:
             continue
