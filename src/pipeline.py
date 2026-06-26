@@ -14,11 +14,13 @@ Execution flow:
   10. AI Diagnosis (Signal → System → Unit comments)
   11. Generate LLM explanations (legacy, optional)
   12. Persist outputs to Golden layer
+  13. Write latest.json pointer
+  14. Upload to S3 (optional)
 """
 
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +39,7 @@ from src.utils.data_utils import (
     validate_telemetry_data,
     get_all_systems,
     get_system_signals,
+    get_utc_now,
 )
 from src.techniques.deviation import compute_limits, apply_deviation_analysis, summarize_deviation, persist_limits
 from src.techniques.events import run_event_analysis
@@ -85,7 +88,7 @@ class TelemetryPipeline:
         self.unit_health = pd.DataFrame()
         self.ai_comments = {"signal": pd.DataFrame(), "system": pd.DataFrame(), "unit": pd.DataFrame()}
 
-    def run(self, skip_autoencoder: bool = False, skip_llm: bool = False, skip_ai_comments: bool = False) -> dict:
+    def run(self, skip_autoencoder: bool = False, skip_llm: bool = False, skip_ai_comments: bool = False, upload_to_s3: bool = False) -> dict:
         """
         Execute the full pipeline.
 
@@ -93,11 +96,12 @@ class TelemetryPipeline:
             skip_autoencoder: Skip LSTM training/inference (faster, for testing)
             skip_llm: Skip LLM explanation generation (saves API costs)
             skip_ai_comments: Skip AI Diagnosis generation (saves API costs)
+            upload_to_s3: Upload results to S3 after persisting locally
 
         Returns:
             Summary dict with counts and statuses.
         """
-        start_time = datetime.utcnow()
+        start_time = get_utc_now()
         logger.info("=" * 60)
         logger.info(f"Pipeline started: client={self.config.client}")
         logger.info("=" * 60)
@@ -141,7 +145,14 @@ class TelemetryPipeline:
         # Phase 12: Persist outputs
         self._persist_outputs()
 
-        elapsed = (datetime.utcnow() - start_time).total_seconds()
+        # Phase 13: Write latest.json pointer
+        self._write_latest_json()
+
+        # Phase 14: Upload to S3 (optional)
+        if upload_to_s3:
+            self._upload_to_s3()
+
+        elapsed = (get_utc_now() - start_time).total_seconds()
         summary = self._build_summary(elapsed)
         logger.info(f"Pipeline complete in {elapsed:.1f}s")
         return summary
@@ -195,7 +206,7 @@ class TelemetryPipeline:
         logger.info(f"  Computed limits for {len(self.limits)} model specifications")
 
         # Persist limits to Silver layer
-        persist_limits(self.limits, self.config.limits_path, datetime.utcnow())
+        persist_limits(self.limits, self.config.limits_path, get_utc_now())
 
     # ─── Phase 4: Deviation ────────────────────────────────────────────────
 
@@ -423,7 +434,7 @@ class TelemetryPipeline:
         logger.info("Phase 12: Persisting outputs...")
 
         output_base = self.config.output_path
-        now = datetime.utcnow()
+        now = get_utc_now()
         year = now.year
         week = now.isocalendar()[1]
 
@@ -476,6 +487,103 @@ class TelemetryPipeline:
             self.ai_comments["unit"].to_parquet(ai_path / "unit_comments.parquet", index=False)
 
         logger.info(f"  Outputs saved to {output_base}")
+
+    # ─── Phase 13: Write latest.json ──────────────────────────────────────
+
+    def _write_latest_json(self):
+        """Write latest.json pointer file for dashboard consumption."""
+        logger.info("Phase 13: Writing latest.json...")
+
+        now = get_utc_now()
+        year = now.year
+        week = now.isocalendar()[1]
+
+        # Determine which silver weeks were available/processed
+        silver_weeks_available = []
+        if self.weeks:
+            # Extract week numbers from file stems like "Week23Year2026"
+            import re
+            for w in self.weeks:
+                match = re.search(r"Week(\d+)Year(\d+)", w)
+                if match:
+                    silver_weeks_available.append(int(match.group(1)))
+        else:
+            # All files were loaded — extract week numbers from silver path
+            telemetry_path = self.config.telemetry_path
+            import re
+            for fp in sorted(telemetry_path.glob("*.parquet")):
+                match = re.search(r"Week(\d+)Year(\d+)", fp.stem)
+                if match and int(match.group(2)) == year:
+                    silver_weeks_available.append(int(match.group(1)))
+
+        silver_weeks_available = sorted(set(silver_weeks_available))
+
+        latest = {
+            "evaluation_week": week,
+            "evaluation_year": year,
+            "execution_timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "silver_weeks_available": silver_weeks_available,
+            "baseline_version": self.baseline_version,
+        }
+
+        output_path = self.config.output_path / "latest.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(latest, f, indent=2)
+
+        logger.info(f"  latest.json written to {output_path}")
+
+    # ─── Phase 14: Upload to S3 ───────────────────────────────────────────
+
+    def _upload_to_s3(self):
+        """Upload Golden layer outputs to S3."""
+        logger.info("Phase 14: Uploading to S3...")
+
+        if not self.config.s3.enabled:
+            logger.warning("  S3 upload disabled (no bucket configured)")
+            return
+
+        try:
+            from src.utils.s3_uploader import TelemetryS3Uploader
+
+            uploader = TelemetryS3Uploader(
+                bucket_name=self.config.s3.bucket_name,
+                aws_access_key=self.config.s3.access_key_id,
+                aws_secret_key=self.config.s3.secret_access_key,
+                s3_prefix=self.config.s3.s3_prefix,
+            )
+
+            now = get_utc_now()
+            year = now.year
+            week = now.isocalendar()[1]
+
+            results = uploader.upload_golden_layer(
+                client=self.config.client,
+                golden_path=self.config.golden_path,
+                year=year,
+                weeks=[week],
+            )
+
+            # Also upload latest.json
+            latest_json_path = self.config.output_path / "latest.json"
+            if latest_json_path.exists():
+                s3_key = f"{self.config.s3.s3_prefix.rstrip('/')}/{self.config.client}/latest.json"
+                uploader.upload_file(latest_json_path, s3_key)
+
+            # Count successes
+            total_files = sum(len(category_results) for category_results in results.values())
+            successful = sum(
+                sum(1 for success in category_results.values() if success)
+                for category_results in results.values()
+            )
+
+            logger.info(f"  S3 upload complete: {successful}/{total_files} files uploaded")
+
+        except ImportError as e:
+            logger.error(f"  Failed to import S3 uploader: {e}")
+        except Exception as e:
+            logger.error(f"  S3 upload failed: {e}")
+            logger.warning("  Continuing without S3 upload...")
 
     # ─── Summary ───────────────────────────────────────────────────────────
 

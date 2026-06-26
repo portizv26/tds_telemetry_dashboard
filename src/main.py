@@ -6,19 +6,27 @@ Usage:
     python -m src.main --client cda --weeks Week22Year2026 Week23Year2026
     python -m src.main --client cda --skip-autoencoder --skip-llm
     python -m src.main --client cda --skip-ai-comments
+    python -m src.main --client cda --upload-to-s3
+    python -m src.main --client cda --weeks Week23Year2026 Week24Year2026 --upload-to-s3
 """
 
 import argparse
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.pipeline import TelemetryPipeline
 
 
 def setup_logging(log_level: str = "INFO") -> None:
     """Configure structured logging."""
+    from pathlib import Path
+    
+    # Create logs directory if it doesn't exist
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -26,7 +34,7 @@ def setup_logging(log_level: str = "INFO") -> None:
         handlers=[
             logging.StreamHandler(sys.stdout),
             logging.FileHandler(
-                f"telemetry_pipeline_{datetime.utcnow().strftime('%Y%m%d')}.log",
+                logs_dir / f"telemetry_pipeline_{datetime.now(timezone.utc).strftime('%Y%m%d')}.log",
                 encoding="utf-8",
             ),
         ],
@@ -58,6 +66,10 @@ def main():
         help="Skip AI Diagnosis comment generation (saves API costs)"
     )
     parser.add_argument(
+        "--upload-to-s3", action="store_true",
+        help="Upload results to S3 after processing (requires AWS credentials in .env)"
+    )
+    parser.add_argument(
         "--log-level", type=str, default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)"
@@ -74,6 +86,7 @@ def main():
         skip_autoencoder=args.skip_autoencoder,
         skip_llm=args.skip_llm,
         skip_ai_comments=args.skip_ai_comments,
+        upload_to_s3=args.upload_to_s3,
     )
 
     # Print summary
@@ -84,7 +97,7 @@ def main():
         logger.info(f"  {key}: {value}")
 
     # Write summary JSON
-    summary_path = f"pipeline_summary_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    summary_path = f"pipeline_summary_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2, default=str)
     logger.info(f"Summary written to {summary_path}")

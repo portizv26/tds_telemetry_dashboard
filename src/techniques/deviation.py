@@ -304,6 +304,12 @@ def apply_deviation_analysis(
                 out.loc[model_idx, col_name] = risk_levels
                 pbar.update(1)
 
+    # Convert risk_level columns to categorical for memory efficiency
+    risk_categories = pd.CategoricalDtype(categories=["unknown", "normal", "alert", "anormal", "critical"], ordered=True)
+    for col in out.columns:
+        if col.startswith("risk_level_"):
+            out[col] = out[col].astype(risk_categories)
+
     out.set_index([UNIT_COLNAME, TIME_COLNAME], inplace=True)
     return out
 

@@ -4,6 +4,7 @@ Data loading, preprocessing, model specification computation, and validation.
 """
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,18 @@ from src.config.settings import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Timezone-aware datetime helper ────────────────────────────────────────────
+
+def get_utc_now() -> datetime:
+    """
+    Get current UTC time as timezone-aware datetime.
+    
+    Returns:
+        Timezone-aware datetime in UTC.
+    """
+    return datetime.now(timezone.utc)
 
 
 # ─── Data Loading ──────────────────────────────────────────────────────────────

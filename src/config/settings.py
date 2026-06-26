@@ -112,6 +112,16 @@ class AICommentsConfig:
 
 
 @dataclass
+class S3Config:
+    """AWS S3 configuration for uploading Golden layer outputs."""
+    bucket_name: str = field(default_factory=lambda: os.getenv("AWS_S3_BUCKET_NAME") or os.getenv("BUCKET_NAME", ""))
+    access_key_id: Optional[str] = field(default_factory=lambda: os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("ACCESS_KEY"))
+    secret_access_key: Optional[str] = field(default_factory=lambda: os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("SECRET_KEY"))
+    s3_prefix: str = field(default_factory=lambda: os.getenv("AWS_S3_PREFIX", "MultiTechnique Alerts/telemetry/golden/"))
+    enabled: bool = field(default_factory=lambda: bool(os.getenv("AWS_S3_BUCKET_NAME") or os.getenv("BUCKET_NAME")))
+
+
+@dataclass
 class PipelineConfig:
     """Top-level configuration aggregating all sub-configs."""
     client: str = "cda"
@@ -126,6 +136,7 @@ class PipelineConfig:
     aggregation: AggregationConfig = field(default_factory=AggregationConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     ai_comments: AICommentsConfig = field(default_factory=AICommentsConfig)
+    s3: S3Config = field(default_factory=S3Config)
 
     @property
     def telemetry_path(self) -> Path:

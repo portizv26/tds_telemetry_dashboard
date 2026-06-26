@@ -128,7 +128,10 @@ def generate_signal_comments(
                     {"role": "user", "content": prompt},
                 ],
             )
-            raw = response.choices[0].message.content
+            raw = response.choices[0].message.content.strip()
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             parsed = json.loads(raw)
             description = parsed.get("description", "")
             explaining = parsed.get("explaining", "")
@@ -235,7 +238,9 @@ def generate_system_comments(
                     {"role": "user", "content": prompt},
                 ],
             )
-            raw = response.choices[0].message.content
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             parsed = json.loads(raw)
             description = parsed.get("description", "")
             explaining = parsed.get("explaining", "")
@@ -345,7 +350,9 @@ def generate_unit_comments(
                     {"role": "user", "content": prompt},
                 ],
             )
-            raw = response.choices[0].message.content
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             parsed = json.loads(raw)
             description = parsed.get("description", "")
             explaining = parsed.get("explaining", "")
