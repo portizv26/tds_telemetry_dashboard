@@ -1,0 +1,23 @@
+# Docker ignores — keep image small
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+*.egg-info/
+.env
+.venv/
+venv/
+notebooks/
+documentation/
+imgs/
+*.log
+*.json
+pipeline_summary_*.json
+telemetry_pipeline_*.log
+data/telemetry/silver/
+data/telemetry/golden/
+data/alerts/
+data/auxiliar/
+data/mantentions/
+data/oil/

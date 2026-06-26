@@ -1,1062 +1,942 @@
-# Telemetry Health Evaluation — Data Contracts
+# Data Contracts — Telemetry Health Evaluation Framework
 
 **Version**: 1.0.0  
-**Last Updated**: May 24, 2026  
-**Purpose**: Define all input and output data schemas for the telemetry health evaluation framework
+**Last Updated**: June 2026  
+**Component**: Data Schemas, Structures & Storage Contracts
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Input Data Contracts](#input-data-contracts)
-3. [Configuration Data Contracts](#configuration-data-contracts)
-4. [Baseline Data Contracts](#baseline-data-contracts)
-5. [Technique Result Data Contracts](#technique-result-data-contracts)
-6. [Aggregation Data Contracts](#aggregation-data-contracts)
-7. [Event Data Contracts](#event-data-contracts)
-8. [Supporting Data Contracts](#supporting-data-contracts)
-9. [Schema Versioning](#schema-versioning)
-10. [Data Quality Standards](#data-quality-standards)
+2. [Medallion Architecture](#medallion-architecture)
+3. [Input Data (Silver Layer)](#input-data-silver-layer)
+4. [Configuration Files](#configuration-files)
+5. [Output Data (Golden Layer)](#output-data-golden-layer)
+6. [Data Flow Diagram](#data-flow-diagram)
+7. [Schema Validation](#schema-validation)
+8. [Versioning & Retention](#versioning--retention)
 
 ---
 
-## 1. Overview
+## Overview
 
-### 1.1 Schema Design Principles
+This document defines all data schemas, file formats, storage paths, and contracts used in the Telemetry Health Evaluation Framework. Following a **medallion architecture**, data flows from Silver (cleaned input) through analytical processing into Golden (health assessments).
 
-1. **Explicit Typing**: All fields have defined data types
-2. **Mandatory Documentation**: Every schema includes field descriptions and constraints
-3. **Versioning**: All outputs include schema_version field
-4. **Partitioning**: Storage location includes partition keys
-5. **Nullability**: Explicitly defined (required vs. optional)
+### Naming Conventions
 
-### 1.2 Storage Format
-
-**Primary Format**: Apache Parquet (columnar, compressed)
-
-**Partitioning Strategy**:
-- Time-based: `year=YYYY/month=MM/day=DD` or `year=YYYY/week=WW`
-- Entity-based: `client=CLIENT_ID`
-
-**Compression**: Snappy (balance between compression ratio and speed)
+- **Files**: `{entity}_{qualifier}.{extension}` (e.g., `baseline_20260225.parquet`)
+- **Partitions**: `year=YYYY/week=WW/` or `year=YYYY/month=MM/day=DD/`
+- **Timestamps**: ISO 8601 UTC (`2026-06-10T14:30:00Z`)
+- **Column names**: `snake_case` for internal data, `PascalCase` preserved from source systems
 
 ---
 
-## 2. Input Data Contracts
+## Medallion Architecture
 
-### 2.1 Silver Layer Telemetry
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          SILVER LAYER (Input)                             │
+│  Cleaned, validated telemetry data from upstream pipeline                 │
+│  Location: data/telemetry/silver/{client}/                               │
+│  Format: Parquet (weekly partitions)                                      │
+│  Responsibility: Data engineering team (external to this framework)       │
+└─────────────────────────────────┬────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         GOLDEN LAYER (Output)                             │
+│  Analytical results, health assessments, baselines                        │
+│  Location: data/telemetry/golden/{client}/                               │
+│  Format: Parquet (technique-specific partitioning)                        │
+│  Responsibility: This framework                                           │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
-**Location**: `data/telemetry/silver/{client}/week_*.parquet`
+---
 
-**Description**: Minute-level cleaned telemetry data from mining equipment
+## Input Data (Silver Layer)
+
+### 1. Telemetry Wide With States
+
+**Purpose**: Primary input — minute-level telemetry readings with operational state classification.
+
+**Location**: `data/telemetry/silver/{client}/Telemetry_Wide_With_States/`
+
+**File Pattern**: `Week{WW}Year{YYYY}.parquet` (e.g., `Week22Year2026.parquet`)
 
 **Schema**:
 
-| Field | Type | Nullable | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| `timestamp` | datetime64[ns] | No | UTC timestamp of measurement | ISO 8601 format |
-| `unit_id` | string | No | Unique equipment identifier | Format: CLIENT_UNIT_NNN |
-| `client` | string | No | Client identifier | Uppercase, 3-4 letters |
-| `equipment_model` | string | No | Equipment model | e.g., "CAT 789C", "CAT 789D" |
-| `operational_state` | string | No | Operational state | One of: Operacional, Ralenti, Apagada, ND |
-| `signal_name` | string | No | Telemetry signal name | Must exist in signal registry |
-| `signal_value` | float64 | Yes | Signal measurement value | Null = missing/invalid |
-| `signal_unit` | string | No | Unit of measurement | e.g., "°C", "kPa", "RPM" |
-| `data_quality_flag` | string | Yes | Quality indicator | One of: GOOD, SUSPECT, BAD, NULL |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `Unit` | string | No | Equipment identifier (e.g., "T_09", "T_15") |
+| `Fecha` | datetime64[ns] | No | Timestamp (UTC, 1-minute resolution) |
+| `Estado` | string | No | Operational state: "Operacional", "Ralenti", "Apagada", "ND" |
+| `EngCoolTemp` | float64 | Yes | Engine coolant temperature (°C) |
+| `EngOilPres` | float64 | Yes | Engine oil pressure (kPa) |
+| `EngSpd` | float64 | Yes | Engine speed (RPM) |
+| `TCOutTemp` | float64 | Yes | Turbocharger outlet temperature (°C) |
+| `...` | float64 | Yes | Additional signals per signal_registry |
 
-**Partitioning**: `client={client}/year={year}/week={week}`
+**Constraints**:
+- One row per (Unit, Fecha) pair — no duplicates
+- Timestamps sorted ascending within each unit
+- Estado values restricted to: `["Operacional", "Ralenti", "Apagada", "ND"]`
+- Signal values within physical_min/physical_max from signal_registry (soft constraint)
+- Weekly file covers ISO week boundary (Monday 00:00 to Sunday 23:59)
 
-**Example Record**:
-```json
-{
-  "timestamp": "2026-05-20T14:23:00Z",
-  "unit_id": "CDA_UNIT_042",
-  "client": "CDA",
-  "equipment_model": "CAT 789D",
-  "operational_state": "Operacional",
-  "signal_name": "EngCoolTemp",
-  "signal_value": 87.5,
-  "signal_unit": "°C",
-  "data_quality_flag": "GOOD"
-}
-```
-
-**Data Quality Requirements**:
-- Minimum 80% coverage per unit per day
-- Maximum 10% consecutive missing values
-- Operational state valid for >90% of records
-
----
-
-## 3. Configuration Data Contracts
-
-### 3.1 Signal Registry
-
-**Location**: `data/telemetry/config/signal_registry_v1.yaml`
-
-**Description**: Metadata for all monitored telemetry signals
-
-**Schema** (YAML):
-
-```yaml
-version: string              # Format: "X.Y"
-last_updated: date           # Format: "YYYY-MM-DD"
-
-signals:
-  - name: string             # Unique signal identifier
-    display_name: string     # Human-readable name
-    system: string           # Parent system (Engine, Transmission, etc.)
-    subsystem: string        # Subsystem (Cooling, Lubrication, etc.)
-    unit: string             # Unit of measurement
-    risk_direction: enum     # "high", "low", "both"
-    valid_states: list       # Valid operational states
-    physical_min: float      # Physical minimum possible value
-    physical_max: float      # Physical maximum possible value
-    criticality: int         # 1=low, 2=medium, 3=high
-    enabled_techniques: list # Techniques to apply
-    baseline_required: bool  # Whether baseline is needed
-    minimum_samples_per_day: int  # Minimum daily samples
-```
-
-**Field Descriptions**:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `name` | Technical signal identifier | "EngCoolTemp" |
-| `display_name` | User-friendly name | "Engine Coolant Temperature" |
-| `system` | Primary system | "Engine" |
-| `subsystem` | System component | "Cooling" |
-| `risk_direction` | Risk interpretation | "high" (high values = risk) |
-| `valid_states` | States where signal is meaningful | ["Operacional", "Ralenti"] |
-| `physical_min` | Physical lower limit | 0.0 |
-| `physical_max` | Physical upper limit | 150.0 |
-| `criticality` | Signal importance | 3 |
-| `enabled_techniques` | Active techniques | ["threshold_deviation", "trend_analysis"] |
-
-**Example Entry**:
-```yaml
-signals:
-  - name: "EngCoolTemp"
-    display_name: "Engine Coolant Temperature"
-    system: "Engine"
-    subsystem: "Cooling"
-    unit: "°C"
-    risk_direction: "high"
-    valid_states:
-      - "Operacional"
-      - "Ralenti"
-    physical_min: 0.0
-    physical_max: 150.0
-    criticality: 3
-    enabled_techniques:
-      - "threshold_deviation"
-      - "event_detection"
-      - "trend_analysis"
-      - "diagnostic_rules"
-    baseline_required: true
-    minimum_samples_per_day: 800
-```
-
----
-
-### 3.2 Technique Configuration
-
-**Location**: `data/telemetry/config/technique_config.yaml`
-
-**Description**: Execution parameters for each analytical technique
-
-**Schema** (YAML):
-
-```yaml
-version: string
-last_updated: date
-
-techniques:
-  - name: string              # Technique identifier
-    cadence: string           # Execution frequency
-    lookback_window: string   # Data window to analyze
-    validity_period: string   # How long results are valid
-    thresholds:               # Technique-specific thresholds
-      [key: value]
-```
+**Data Volume** (typical per file):
+- ~10,000 rows per unit per week (10,080 max = 7 days × 24h × 60min)
+- ~11 units → ~100,000-110,000 rows per weekly file
+- ~20-30 signal columns
 
 **Example**:
+```
+Unit   | Fecha                    | Estado       | EngCoolTemp | EngOilPres | EngSpd  | ...
+T_09   | 2026-06-03 00:00:00     | Apagada      | 28.4        | NaN        | 0.0     | ...
+T_09   | 2026-06-03 00:01:00     | Apagada      | 28.3        | NaN        | 0.0     | ...
+T_09   | 2026-06-03 06:42:00     | Ralenti      | 42.1        | 385.2      | 620.0   | ...
+T_09   | 2026-06-03 06:43:00     | Operacional  | 68.7        | 412.8      | 1820.0  | ...
+```
+
+---
+
+### 2. Pre-computed Baselines
+
+**Purpose**: Historical percentile-based reference distributions for threshold comparison.
+
+**Location**: `data/telemetry/silver/{client}/baselines/`
+
+**File Pattern**: `baseline_{YYYYMMDD}.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `model_specification` | string | No | Equipment model variant (e.g., "789C", "789C_with_silencer") |
+| `signal` | string | No | Signal name from signal_registry |
+| `state` | string | No | Operational state |
+| `P1` | float64 | No | 1st percentile |
+| `P2` | float64 | No | 2nd percentile |
+| `P5` | float64 | No | 5th percentile |
+| `P10` | float64 | No | 10th percentile |
+| `P25` | float64 | No | 25th percentile |
+| `P50` | float64 | No | 50th percentile (median) |
+| `P75` | float64 | No | 75th percentile |
+| `P90` | float64 | No | 90th percentile |
+| `P95` | float64 | No | 95th percentile |
+| `P98` | float64 | No | 98th percentile |
+| `P99` | float64 | No | 99th percentile |
+| `mean` | float64 | No | Arithmetic mean |
+| `std` | float64 | No | Standard deviation |
+| `sample_count` | int64 | No | Number of valid samples |
+| `training_start` | datetime64[ns] | No | Start of training window |
+| `training_end` | datetime64[ns] | No | End of training window |
+
+**Metadata File**: `baseline_metadata.json`
+```json
+{
+  "baseline_version": "20260225",
+  "created_at": "2026-02-25T15:20:38.559214",
+  "evaluation_week": 50,
+  "evaluation_year": 2025,
+  "lookback_days": 112,
+  "total_records": 932,
+  "units": 11,
+  "signals": 18,
+  "state_specific_baselines": 932,
+  "aggregate_baselines": 0
+}
+```
+
+**Refresh Policy**: Monthly (first Sunday of month), rolling 90-day window.
+
+---
+
+### 3. Computed Limits
+
+**Purpose**: Percentile-based thresholds derived from baselines/data, used by Deviation and Event Analysis to classify each telemetry minute into risk levels. Persisted to enable auditability, reproducibility, and downstream consumption without recomputation.
+
+**Location**: `data/telemetry/silver/{client}/limits/`
+
+**File Pattern**: `limits_{YYYYMMDD}.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `model_specification` | string | No | Equipment model variant (e.g., "789C", "789C_with_silencer") |
+| `signal` | string | No | Signal name from signal_registry |
+| `state` | string | No | Operational state: "Operacional", "Ralenti", "Apagada" |
+| `P1` | float64 | No | 1st percentile |
+| `P2` | float64 | No | 2nd percentile |
+| `P5` | float64 | No | 5th percentile |
+| `P10` | float64 | No | 10th percentile |
+| `P25` | float64 | No | 25th percentile |
+| `P50` | float64 | No | 50th percentile (median) |
+| `P75` | float64 | No | 75th percentile |
+| `P90` | float64 | No | 90th percentile |
+| `P95` | float64 | No | 95th percentile |
+| `P98` | float64 | No | 98th percentile |
+| `P99` | float64 | No | 99th percentile |
+| `sample_count` | int64 | No | Number of valid samples used for computation |
+| `computation_date` | date | No | Date when limits were computed |
+
+**Constraints**:
+- One row per (model_specification, signal, state) combination
+- Only includes entries with ≥ `min_unique_values` (default: 10) unique samples
+- Percentile values are rounded to 2 decimal places
+- State values restricted to: `["Operacional", "Ralenti", "Apagada"]` (ND excluded)
+
+**Relationship to Baselines**:
+- Baselines are the historical reference distributions (external input)
+- Limits are the operational thresholds derived from data for classification
+- Both co-exist in the silver layer as reference data consumed by downstream techniques
+
+**Refresh Policy**: Recomputed each pipeline execution. Previous versions retained for audit trail.
+
+**Example**:
+```
+model_specification | signal      | state        | P1    | P2    | P5    | ... | P99   | sample_count | computation_date
+789C                | EngCoolTemp | Operacional  | 52.10 | 54.30 | 57.80 | ... | 98.40 | 45230        | 2026-06-10
+789C                | EngCoolTemp | Ralenti      | 38.20 | 39.50 | 41.00 | ... | 72.10 | 12840        | 2026-06-10
+789C_with_silencer  | EngCoolTemp | Operacional  | 53.40 | 55.60 | 58.90 | ... | 99.20 | 38100        | 2026-06-10
+```
+
+---
+
+## Configuration Files
+
+### 1. Signal Registry
+
+**Purpose**: Define signal characteristics, system grouping, risk direction, and processing flags.
+
+**Location**: `data/telemetry/config/{client}/signal_registry.yaml`
+
+**Schema**:
 ```yaml
-techniques:
-  - name: "threshold_deviation"
-    cadence: "daily"
-    lookback_window: "24h"
-    validity_period: "2d"
-    thresholds:
-      warning_percentile: 5    # P5 or P95
-      abnormal_percentile: 1   # P1 or P99
-      minimum_event_duration_minutes: 15
-      
-  - name: "trend_analysis"
-    cadence: "weekly"
-    lookback_window: "8w"
-    validity_period: "1w"
-    thresholds:
-      minimum_weeks: 4
-      p_value_threshold: 0.05
-      min_slope_significance: 0.5
+version: "1.2"
+last_updated: "2026-05-28"
+
+signals:
+  - name: str              # Column name in telemetry data (required)
+    display_name: str      # Human-readable name (required)
+    system: str            # System grouping: "Engine", "Transmission", "Brakes", "Steering" (required)
+    subsystem: str         # Subsystem: "Cooling", "Lubrication", etc. (required)
+    unit: str              # Measurement unit: "°C", "kPa", "RPM" (required)
+    risk_direction: str    # "high", "low", or "both" (required)
+    threshold_compute: bool # Whether to include in deviation analysis (required)
+    physical_min: float    # Physical lower bound (required)
+    physical_max: float    # Physical upper bound (required)
+    criticality: int       # 1 (safety-critical) to 3 (monitoring) (required)
+    description: str       # Signal description (required)
+
+systems:
+  - name: str              # System name matching signals.system (required)
+    display_name: str      # Human-readable name (required)
+    criticality: int       # 1 (safety-critical) to 3 (monitoring) (required)
+    description: str       # System description (required)
+```
+
+**Current Systems** (CDA client):
+| System | Criticality | Signals Count |
+|--------|-------------|---------------|
+| Engine | 3 | ~14 signals |
+| Transmission | 3 | ~6 signals |
+| Brakes | 1 (safety) | 4 signals |
+| Steering | 1 (safety) | 1 signal |
+
+### 2. Equipment Registry
+
+**Purpose**: Map unit identifiers to equipment models and hardware configurations.
+
+**Location**: `data/telemetry/config/{client}/equipment_registry.yaml`
+
+**Schema**:
+```yaml
+version: "1.0"
+last_updated: "2024-06-01"
+
+equipments:
+  - name: str            # Unit identifier matching telemetry data (required)
+    brand: str           # Manufacturer (required)
+    model: str           # Model name: "789C", "789D" (required)
+    has_silencer: bool   # Silencer hardware presence (required)
+```
+
+**Derived Field**: `model_specification` = `"{model}_with_silencer"` if `has_silencer` else `"{model}"`
+
+### 3. Analysis Configuration
+
+**Purpose**: Tunable parameters for all analysis techniques.
+
+**Location**: `data/telemetry/config/{client}/analysis_config.yaml`
+
+**Schema**:
+```yaml
+deviation_analysis:
+  baseline_weeks: int           # Weeks of data for baseline computation (default: 12)
+  percentiles: list[int]        # Percentiles to compute (default: [1,2,5,10,25,50,75,90,95,98,99])
+  min_unique_values: int        # Minimum unique values for valid percentile (default: 10)
+
+event_analysis:
+  binary_thresholds:
+    spike_max_minutes: int      # Max duration for spike classification (default: 5)
+    anomaly_max_minutes: int    # Max duration for anomaly classification (default: 30)
+  weighted_thresholds:
+    spike_max_points: int       # Max points for spike (default: 10)
+    anomaly_max_points: int     # Max points for anomaly (default: 30)
+  severity_weights:
+    alert: int                  # Points per minute for alert (default: 1)
+    anormal: int                # Points per minute for anormal (default: 3)
+    critical: int               # Points per minute for critical (default: 5)
+
+trend_analysis:
+  window_weeks: list[int]       # Analysis windows (default: [4, 8, 12])
+  rolling_window_minutes: int   # Smoothing window (default: 30)
+  p_value_threshold: float      # Significance threshold (default: 0.05)
+  r2_threshold: float           # Goodness of fit threshold (default: 0.3)
+  min_data_points: int          # Minimum data points (default: 10)
+
+distribution_analysis:
+  baseline_weeks: int           # Baseline period (default: 52)
+  observation_weeks: list[int]  # Observation windows (default: [4, 8, 12])
+  p_value_threshold: float      # Significance threshold (default: 0.05)
+  min_baseline_samples: int     # Minimum baseline samples (default: 100)
+  min_observation_samples: int  # Minimum observation samples (default: 30)
+
+anomaly_detection:
+  sequence_length: int          # LSTM sequence length in minutes (default: 30)
+  quality_threshold: float      # Max imputation ratio (default: 0.10)
+  encoding_dim: int             # Latent space dimension (default: 32)
+  epochs: int                   # Training epochs (default: 50)
+  batch_size: int               # Training batch size (default: 32)
+  validation_split: float       # Validation fraction (default: 0.2)
+  early_stopping_patience: int  # Early stopping patience (default: 10)
+
+aggregation:
+  validity_periods:
+    autoencoder_hours: int      # AE result validity (default: 12)
+    deviation_days: int         # Deviation result validity (default: 2)
+    event_days: int             # Event result validity (default: 2)
+    distribution_days: int      # Distribution result validity (default: 7)
+    trend_weeks: int            # Trend result validity (default: 4)
+  system_weights:
+    max_critical: float         # Weight for max critical score (default: 0.4)
+    weighted_mean: float        # Weight for weighted mean (default: 0.3)
+    persistence: float          # Weight for multi-technique agreement (default: 0.2)
+    trend: float                # Weight for trend penalty (default: 0.1)
+  status_thresholds:
+    normal_max: int             # Max score for Normal (default: 40)
+    alerta_max: int             # Max score for Alerta (default: 70)
+
+llm:
+  model: str                    # OpenAI model (default: "gpt-4o-mini")
+  temperature: float            # Generation temperature (default: 0.3)
+  max_tokens: int               # Max response tokens (default: 1000)
+  rate_limit_delay: float       # Seconds between API calls (default: 0.5)
+  skip_normal_units: bool       # Skip LLM for Normal units (default: true)
 ```
 
 ---
 
-## 4. Baseline Data Contracts
+## Output Data (Golden Layer)
 
-### 4.1 Baseline Statistics Table
+### 1. Technique Results — Deviation Analysis
 
-**Location**: `data/telemetry/analytical_results/baselines/baseline_{YYYYMMDD}.parquet`
+**Purpose**: Per-signal, per-day risk classification based on threshold exceedance.
 
-**Description**: State-specific percentiles and statistics for anomaly detection
+**Location**: `data/telemetry/golden/{client}/technique_results/deviation/year={YYYY}/week={WW}/`
+
+**File Pattern**: `deviation_results.parquet`
 
 **Schema**:
 
-| Field | Type | Nullable | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| `baseline_version` | string | No | Baseline version identifier | Format: YYYYMMDD |
-| `client` | string | No | Client identifier | Uppercase |
-| `equipment_model` | string | No | Equipment model | e.g., "CAT 789D" |
-| `unit_id` | string | Yes | Specific unit (if unit-level baseline) | Null for aggregate |
-| `signal_name` | string | No | Signal identifier | Must exist in registry |
-| `operational_state` | string | No | Operational state | One of: Operacional, Ralenti, Apagada, ND |
-| `p1` | float64 | Yes | 1st percentile | Can be null if insufficient data |
-| `p5` | float64 | Yes | 5th percentile | |
-| `p50` | float64 | Yes | Median (50th percentile) | |
-| `p95` | float64 | Yes | 95th percentile | |
-| `p99` | float64 | Yes | 99th percentile | |
-| `mean` | float64 | Yes | Arithmetic mean | |
-| `std` | float64 | Yes | Standard deviation | |
-| `mad` | float64 | Yes | Median Absolute Deviation | Robust alternative to std |
-| `sample_count` | int64 | No | Number of observations | Must be ≥1000 for valid baseline |
-| `training_window_start` | datetime64[ns] | No | Start of training period | |
-| `training_window_end` | datetime64[ns] | No | End of training period | |
-| `quality_score` | float64 | No | Baseline quality (0-1) | Based on sample count, distribution |
-| `fallback_level` | string | No | Baseline granularity | "unit", "model", "client", "global" |
-
-**Partitioning**: `year={year}/month={month}`
-
-**Example Record**:
-```json
-{
-  "baseline_version": "20260524",
-  "client": "CDA",
-  "equipment_model": "CAT 789D",
-  "unit_id": "CDA_UNIT_042",
-  "signal_name": "EngCoolTemp",
-  "operational_state": "Operacional",
-  "p1": 65.2,
-  "p5": 68.5,
-  "p50": 82.3,
-  "p95": 95.8,
-  "p99": 102.5,
-  "mean": 83.1,
-  "std": 8.7,
-  "mad": 6.4,
-  "sample_count": 45600,
-  "training_window_start": "2026-02-24T00:00:00Z",
-  "training_window_end": "2026-05-24T23:59:59Z",
-  "quality_score": 0.92,
-  "fallback_level": "unit"
-}
-```
-
-**Fallback Hierarchy**:
-1. **unit**: Baseline specific to unit_id + model + signal + state
-2. **model**: Baseline for model + signal + state (across all units)
-3. **client**: Baseline for client + signal + state (across all models)
-4. **global**: Baseline for signal + state (across all clients)
-
----
-
-### 4.2 Baseline Metadata
-
-**Location**: `data/telemetry/analytical_results/baselines/baseline_metadata.json`
-
-**Description**: Metadata about baseline generation process
-
-**Schema** (JSON):
-
-```json
-{
-  "baseline_version": "string",          // YYYYMMDD
-  "generation_timestamp": "datetime",    // ISO 8601
-  "training_window_days": "int",         // e.g., 90
-  "total_baselines_generated": "int",
-  "baselines_by_fallback_level": {
-    "unit": "int",
-    "model": "int",
-    "client": "int",
-    "global": "int"
-  },
-  "baselines_by_quality": {
-    "high": "int",      // quality_score > 0.8
-    "medium": "int",    // quality_score 0.5-0.8
-    "low": "int"        // quality_score < 0.5
-  },
-  "signals_covered": ["string"],
-  "clients_covered": ["string"],
-  "refresh_schedule": "string"           // e.g., "monthly"
-}
-```
-
----
-
-## 5. Technique Result Data Contracts
-
-### 5.1 Common TechniqueResult Schema
-
-**Description**: Standard fields present in all technique outputs
-
-**Common Fields**:
-
-| Field | Type | Nullable | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| `result_id` | string | No | Unique result identifier | UUID v4 |
-| `technique_name` | string | No | Technique identifier | e.g., "threshold_deviation" |
-| `technique_version` | string | No | Technique version | Semantic versioning |
-| `evaluation_timestamp` | datetime64[ns] | No | When evaluation was performed | ISO 8601 |
-| `evaluation_window_start` | datetime64[ns] | No | Start of evaluated period | |
-| `evaluation_window_end` | datetime64[ns] | No | End of evaluated period | |
-| `unit_id` | string | No | Equipment identifier | |
-| `client` | string | No | Client identifier | |
-| `equipment_model` | string | No | Equipment model | |
-| `signal_name` | string | No | Signal evaluated | |
-| `system` | string | No | System classification | From signal registry |
-| `risk_score` | float64 | No | Normalized risk (0-100) | 0=normal, 100=critical |
-| `confidence_score` | float64 | No | Result confidence (0-100) | Based on data quality |
-| `status` | string | No | Classification | "Normal", "Alerta", "Anormal", "InsufficientData" |
-| `validity_period_days` | int64 | No | Days result is valid | |
-| `baseline_version` | string | Yes | Baseline used (if applicable) | YYYYMMDD |
-| `evidence` | JSON | No | Technique-specific evidence | See technique sections |
-| `schema_version` | string | No | Data contract version | "1.0.0" |
-
----
-
-### 5.2 Threshold Deviation Result
-
-**Location**: `data/telemetry/analytical_results/technique_results/threshold_deviation/`
-
-**Partitioning**: `year={year}/month={month}/day={day}`
-
-**Additional Fields**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `operational_state` | string | State during evaluation |
-| `sample_count` | int64 | Valid samples in window |
-| `coverage_pct` | float64 | % of expected samples present |
-
-**Evidence Structure** (JSON):
-
-```json
-{
-  "baseline_p1": 65.2,
-  "baseline_p5": 68.5,
-  "baseline_p95": 95.8,
-  "baseline_p99": 102.5,
-  "observed_mean": 88.3,
-  "observed_max": 105.2,
-  "observed_min": 72.1,
-  "warning_exceedance_pct": 8.5,      // % beyond P5/P95
-  "abnormal_exceedance_pct": 2.3,     // % beyond P1/P99
-  "max_deviation": 12.7,               // Max distance from baseline
-  "mean_deviation": 5.4,
-  "event_count": 3,
-  "longest_event_duration_minutes": 45,
-  "data_quality": {
-    "coverage": 0.94,
-    "missing_pct": 6.0,
-    "flatline_detected": false
-  }
-}
-```
-
-**Example Complete Record**:
-```json
-{
-  "result_id": "f7c8d3a1-4b2e-4d9a-8f3c-1e5a6b7c8d9e",
-  "technique_name": "threshold_deviation",
-  "technique_version": "1.0.0",
-  "evaluation_timestamp": "2026-05-24T02:15:00Z",
-  "evaluation_window_start": "2026-05-23T00:00:00Z",
-  "evaluation_window_end": "2026-05-23T23:59:59Z",
-  "unit_id": "CDA_UNIT_042",
-  "client": "CDA",
-  "equipment_model": "CAT 789D",
-  "signal_name": "EngCoolTemp",
-  "system": "Engine",
-  "risk_score": 72.5,
-  "confidence_score": 94.0,
-  "status": "Anormal",
-  "validity_period_days": 2,
-  "baseline_version": "20260524",
-  "operational_state": "Operacional",
-  "sample_count": 1356,
-  "coverage_pct": 94.2,
-  "evidence": { /* see above */ },
-  "schema_version": "1.0.0"
-}
-```
-
----
-
-### 5.3 Trend Analysis Result
-
-**Location**: `data/telemetry/analytical_results/technique_results/trend_analysis/`
-
-**Partitioning**: `year={year}/week={week}`
-
-**Additional Fields**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `lookback_weeks` | int64 | Number of weeks analyzed (4, 8, or 12) |
-| `valid_weeks` | int64 | Weeks with sufficient data |
-
-**Evidence Structure** (JSON):
-
-```json
-{
-  "regression_method": "linear",        // "linear" or "theil_sen"
-  "slope": -0.8,                        // Units per week
-  "intercept": 85.2,
-  "r_squared": 0.78,
-  "p_value": 0.003,
-  "statistically_significant": true,
-  "trend_direction": "degrading",       // "improving", "stable", "degrading"
-  "recent_mean": 79.3,                  // Last 2 weeks
-  "baseline_mean": 83.1,                // Baseline from training
-  "delta_pct": -4.6,                    // % change
-  "weekly_values": [83.2, 82.5, 81.1, 79.8, 78.5, 77.9, 79.0, 79.6],
-  "weeks_with_data": 8,
-  "data_quality": {
-    "valid_weeks": 8,
-    "expected_weeks": 8,
-    "min_coverage": 0.87
-  }
-}
-```
-
----
-
-### 5.4 Diagnostic Rules Result
-
-**Location**: `data/telemetry/analytical_results/technique_results/diagnostic_rules/`
-
-**Partitioning**: `year={year}/month={month}/day={day}` (daily) or `year={year}/week={week}` (weekly)
-
-**Additional Fields**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `rule_id` | string | Rule identifier from diagnostic_rules.yaml |
-| `rule_name` | string | Human-readable rule name |
-| `systems_affected` | list[string] | Systems involved in rule |
-
-**Evidence Structure** (JSON):
-
-```json
-{
-  "rule_description": "Engine Overheating Pattern",
-  "rule_severity": "high",
-  "conditions_met": [
-    {
-      "signal": "EngCoolTemp",
-      "condition": "above_p95",
-      "threshold": 95.8,
-      "observed": 102.3,
-      "duration_minutes": 120
-    },
-    {
-      "signal": "TCOutTemp",
-      "condition": "above_p95",
-      "threshold": 88.5,
-      "observed": 94.2,
-      "duration_minutes": 115
-    }
-  ],
-  "concurrent_duration_minutes": 115,
-  "operational_state": "Operacional",
-  "first_trigger": "2026-05-23T14:30:00Z",
-  "last_trigger": "2026-05-23T16:25:00Z"
-}
-```
-
----
-
-### 5.5 Event Detection Result
-
-**Location**: `data/telemetry/analytical_results/events/`
-
-**Description**: Individual abnormal episodes detected
-
-**Partitioning**: `year={year}/month={month}/day={day}`
-
-**Schema**:
-
-| Field | Type | Nullable | Description |
-|-------|------|----------|-------------|
-| `event_id` | string | No | Unique event identifier |
-| `unit_id` | string | No | Equipment identifier |
-| `client` | string | No | Client identifier |
-| `equipment_model` | string | No | Equipment model |
-| `signal_name` | string | No | Signal with event |
-| `system` | string | No | System classification |
-| `event_start` | datetime64[ns] | No | Event start timestamp |
-| `event_end` | datetime64[ns] | No | Event end timestamp |
-| `duration_minutes` | int64 | No | Event duration |
-| `event_type` | string | No | "spike", "episode", "sustained" |
-| `max_value` | float64 | No | Peak value during event |
-| `mean_value` | float64 | No | Average during event |
-| `max_deviation` | float64 | No | Max distance from baseline |
-| `mean_deviation` | float64 | No | Avg distance from baseline |
-| `operational_state` | string | No | State during event |
-| `severity_score` | float64 | No | Event severity (0-100) |
-| `baseline_version` | string | Yes | Baseline used |
-| `consecutive_minutes` | int64 | No | Uninterrupted abnormal minutes |
-| `source_technique` | string | No | Technique that detected event |
-| `schema_version` | string | No | Data contract version |
-
-**Event Type Classification**:
-- **spike**: Duration < 5 minutes
-- **episode**: Duration 5-60 minutes
-- **sustained**: Duration > 60 minutes
-
-**Example Record**:
-```json
-{
-  "event_id": "evt_20260523_cda042_engcooltemp_001",
-  "unit_id": "CDA_UNIT_042",
-  "client": "CDA",
-  "equipment_model": "CAT 789D",
-  "signal_name": "EngCoolTemp",
-  "system": "Engine",
-  "event_start": "2026-05-23T14:30:00Z",
-  "event_end": "2026-05-23T16:25:00Z",
-  "duration_minutes": 115,
-  "event_type": "sustained",
-  "max_value": 105.2,
-  "mean_value": 102.8,
-  "max_deviation": 12.7,
-  "mean_deviation": 10.3,
-  "operational_state": "Operacional",
-  "severity_score": 78.5,
-  "baseline_version": "20260524",
-  "consecutive_minutes": 115,
-  "source_technique": "threshold_deviation",
-  "schema_version": "1.0.0"
-}
-```
-
----
-
-## 6. Aggregation Data Contracts
-
-### 6.1 System Health
-
-**Location**: `data/telemetry/analytical_results/system_health/`
-
-**Partitioning**: `year={year}/week={week}/client={client}`
-
-**Description**: Aggregated health assessment per system per unit
-
-**Schema**:
-
-| Field | Type | Nullable | Description |
-|-------|------|----------|-------------|
-| `assessment_id` | string | No | Unique assessment identifier |
-| `assessment_timestamp` | datetime64[ns] | No | When assessment was performed |
-| `assessment_window_start` | datetime64[ns] | No | Period start |
-| `assessment_window_end` | datetime64[ns] | No | Period end |
-| `unit_id` | string | No | Equipment identifier |
-| `client` | string | No | Client identifier |
-| `equipment_model` | string | No | Equipment model |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `signal` | string | No | Signal name |
 | `system` | string | No | System name |
-| `system_risk_score` | float64 | No | Aggregated risk (0-100) |
-| `system_confidence_score` | float64 | No | Aggregated confidence (0-100) |
+| `state` | string | No | Operational state evaluated |
+| `model_specification` | string | No | Equipment model variant |
+| `evaluation_date` | date | No | Date of evaluation |
+| `risk_score` | float64 | No | Normalized risk (0-100) |
+| `confidence_score` | float64 | No | Assessment confidence (0-100) |
+| `status` | string | No | "Normal", "Alerta", "Anormal", "InsufficientData" |
+| `abnormal_pct` | float64 | No | % of minutes in abnormal zone |
+| `alert_pct` | float64 | No | % of minutes in alert zone |
+| `critical_pct` | float64 | No | % of minutes in critical zone |
+| `max_deviation` | float64 | Yes | Maximum value deviation from limit |
+| `total_minutes_evaluated` | int64 | No | Minutes with valid data |
+| `baseline_version` | string | No | Baseline file version used |
+| `execution_timestamp` | datetime64[ns] | No | When analysis ran |
+
+---
+
+### 2. Technique Results — Event Analysis
+
+**Purpose**: Identified abnormal episodes with duration and severity classification.
+
+**Location**: `data/telemetry/golden/{client}/technique_results/events/year={YYYY}/week={WW}/`
+
+**File Pattern**: `events.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `signal` | string | No | Signal name |
+| `system` | string | No | System name |
+| `event_id` | string | No | Unique event identifier |
+| `start_time` | datetime64[ns] | No | Event start timestamp |
+| `end_time` | datetime64[ns] | No | Event end timestamp |
+| `duration_minutes` | int64 | No | Event duration in minutes |
+| `total_severity_points` | float64 | No | Weighted severity score |
+| `event_type_binary` | string | No | "spike", "anomaly", "warning" |
+| `event_type_weighted` | string | No | "spike", "anomaly", "warning" |
+| `max_severity` | string | No | Maximum risk level in event |
+| `alert_minutes` | int64 | No | Minutes at alert level |
+| `anormal_minutes` | int64 | No | Minutes at anormal level |
+| `critical_minutes` | int64 | No | Minutes at critical level |
+| `execution_timestamp` | datetime64[ns] | No | When analysis ran |
+
+---
+
+### 3. Technique Results — Trend Analysis
+
+**Purpose**: Statistical trend detection over multiple time windows.
+
+**Location**: `data/telemetry/golden/{client}/technique_results/trend/year={YYYY}/week={WW}/`
+
+**File Pattern**: `trend_results.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `signal` | string | No | Signal name |
+| `system` | string | No | System name |
+| `window_weeks` | int64 | No | Analysis window (4, 8, or 12) |
+| `slope_per_day` | float64 | No | Rate of change per day |
+| `r2` | float64 | No | Regression R² score |
+| `p_value` | float64 | No | Statistical significance |
+| `is_significant` | bool | No | p_value < threshold |
+| `is_good_fit` | bool | No | r2 > threshold |
+| `risk_direction` | string | No | "high", "low", "both" |
+| `trend_interpretation` | string | No | "worsening", "improving", "drifting" |
+| `risk_score` | float64 | No | Normalized risk (0-100) |
+| `confidence_score` | float64 | No | Assessment confidence (0-100) |
+| `status` | string | No | "Normal", "Alerta", "Anormal", "InsufficientData" |
+| `data_points` | int64 | No | Number of data points used |
+| `start_time` | datetime64[ns] | No | Window start |
+| `end_time` | datetime64[ns] | No | Window end |
+| `execution_timestamp` | datetime64[ns] | No | When analysis ran |
+
+---
+
+### 4. Technique Results — Distribution Shift
+
+**Purpose**: Statistical distribution comparison between recent and historical data.
+
+**Location**: `data/telemetry/golden/{client}/technique_results/distribution/year={YYYY}/week={WW}/`
+
+**File Pattern**: `distribution_results.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `signal` | string | No | Signal name |
+| `system` | string | No | System name |
+| `state` | string | No | Operational state |
+| `observation_weeks` | int64 | No | Recent observation window (4, 8, 12) |
+| `p_value` | float64 | No | Mann-Whitney U test p-value |
+| `cohens_d` | float64 | No | Effect size (Cohen's d) |
+| `effect_size_category` | string | No | "negligible", "small", "medium", "large" |
+| `is_significant` | bool | No | p_value < 0.05 |
+| `baseline_median` | float64 | No | Historical median |
+| `observation_median` | float64 | No | Recent median |
+| `median_pct_change` | float64 | No | Percentage change in median |
+| `shift_interpretation` | string | No | "worsening", "improving", "drifting" |
+| `risk_score` | float64 | No | Normalized risk (0-100) |
+| `confidence_score` | float64 | No | Assessment confidence (0-100) |
+| `status` | string | No | "Normal", "Alerta", "Anormal", "InsufficientData" |
+| `baseline_n` | int64 | No | Baseline sample count |
+| `observation_n` | int64 | No | Observation sample count |
+| `execution_timestamp` | datetime64[ns] | No | When analysis ran |
+
+---
+
+### 5. Technique Results — Autoencoder
+
+**Purpose**: Multivariate anomaly detection using LSTM reconstruction error.
+
+**Location**: `data/telemetry/golden/{client}/technique_results/autoencoder/year={YYYY}/week={WW}/`
+
+**File Pattern**: `autoencoder_results.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `system` | string | No | System name (model per system) |
+| `window_start` | datetime64[ns] | No | 6-hour window start |
+| `window_end` | datetime64[ns] | No | 6-hour window end |
+| `reconstruction_error` | float64 | No | MSE reconstruction error |
+| `z_score` | float64 | No | Error z-score vs baseline |
+| `percentile_score` | float64 | No | Percentile rank (0-100) |
+| `severity` | string | No | "normal", "minor", "moderate", "severe" |
+| `risk_score` | float64 | No | Normalized risk (0-100) |
+| `confidence_score` | float64 | No | Assessment confidence (0-100) |
+| `status` | string | No | "Normal", "Alerta", "Anormal", "InsufficientData" |
+| `top_contributing_signals` | string | No | JSON array of top error signals |
+| `data_quality_ratio` | float64 | No | Fraction of non-imputed data |
+| `model_version` | string | No | Trained model version identifier |
+| `execution_timestamp` | datetime64[ns] | No | When analysis ran |
+
+---
+
+### 6. AI Comments — Signal Level
+
+**Purpose**: Structured AI diagnostic comments per signal, explaining what technique evidence reveals.
+
+**Location**: `data/telemetry/golden/{client}/ai_comments/year={YYYY}/week={WW}/`
+
+**File Pattern**: `signal_comments.parquet`
+
+**Language**: All AI-generated text fields are in **Spanish**.
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `signal` | string | No | Signal name |
+| `system` | string | No | System name |
+| `status` | string | No | Aggregated signal status |
+| `risk_score` | float64 | No | Signal risk score at time of diagnosis |
+| `description` | string | No | Brief summary of what was detected (max ~20 words, Spanish) |
+| `explaining` | string | No | Detailed explanation of findings and relevance (2-4 sentences, Spanish) |
+| `techniques_referenced` | string | No | JSON array of technique names that informed the diagnosis |
+| `evaluation_timestamp` | datetime64[ns] | No | When diagnosis was generated |
+| `model_used` | string | No | LLM model identifier |
+
+**Constraints**:
+- Only signals with non-Normal status are included
+- `description`: concise, max ~20 words — explains *what* was detected
+- `explaining`: detailed, 2-4 sentences — explains *what was found* and *why it is relevant*
+- `techniques_referenced` contains only techniques that reported non-Normal for this signal
+- No `recommended_action` at signal level — actions are generated at system/unit level
+
+---
+
+### 7. AI Comments — System Level
+
+**Purpose**: Synthesized AI diagnostic at system level, combining signal-level findings.
+
+**Location**: `data/telemetry/golden/{client}/ai_comments/year={YYYY}/week={WW}/`
+
+**File Pattern**: `system_comments.parquet`
+
+**Language**: All AI-generated text fields are in **Spanish**.
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `system` | string | No | System name |
+| `system_status` | string | No | System health status |
+| `system_score` | float64 | No | System health score at time of diagnosis |
+| `description` | string | No | Brief summary of system condition (max ~20 words, Spanish) |
+| `explaining` | string | No | Detailed explanation of findings and relevance (2-4 sentences, Spanish) |
+| `signals_referenced` | string | No | JSON array of signal names discussed |
+| `recommended_action` | string | Yes | Suggested maintenance action (Spanish) |
+| `evaluation_timestamp` | datetime64[ns] | No | When diagnosis was generated |
+| `model_used` | string | No | LLM model identifier |
+
+**Constraints**:
+- Only systems with non-Normal status are included
+- Uses signal-level comments as input context (bottom-up)
+- `recommended_action` is a single actionable sentence, generated with full signal context
+
+---
+
+### 8. AI Comments — Unit Level
+
+**Purpose**: Executive-level AI diagnostic summarizing the unit condition.
+
+**Location**: `data/telemetry/golden/{client}/ai_comments/year={YYYY}/week={WW}/`
+
+**File Pattern**: `unit_comments.parquet`
+
+**Language**: All AI-generated text fields are in **Spanish**.
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `overall_status` | string | No | Unit overall status |
+| `priority_score` | float64 | No | Unit priority score at time of diagnosis |
+| `description` | string | No | Brief summary of unit condition (max ~20 words, Spanish) |
+| `explaining` | string | No | Detailed executive assessment (2-4 sentences, Spanish) |
+| `systems_referenced` | string | No | JSON array of system names discussed |
+| `urgency` | string | No | "routine", "monitor", "schedule_inspection", "immediate" |
+| `recommended_action` | string | Yes | Top-priority maintenance recommendation (Spanish) |
+| `evaluation_timestamp` | datetime64[ns] | No | When diagnosis was generated |
+| `model_used` | string | No | LLM model identifier |
+
+**Constraints**:
+- Only units with non-Normal status are included
+- Uses system-level comments as input context (bottom-up)
+- `urgency` maps priority_score ranges to action timelines
+- `recommended_action` generated with full system-level context
+
+---
+
+### 9. System Health
+
+**Purpose**: Aggregated system-level health assessments combining all techniques.
+
+**Location**: `data/telemetry/golden/{client}/system_health/year={YYYY}/week={WW}/`
+
+**File Pattern**: `system_health.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `system` | string | No | System name |
+| `system_score` | float64 | No | Aggregated system score (0-100) |
 | `system_status` | string | No | "Normal", "Alerta", "Anormal", "InsufficientData" |
-| `contributing_signals` | JSON | No | Top signals driving score |
-| `technique_results_used` | JSON | No | Techniques contributing |
-| `week_over_week_delta` | float64 | Yes | Change from previous week |
-| `trend_direction` | string | Yes | "improving", "stable", "degrading" |
-| `schema_version` | string | No | Data contract version |
+| `confidence` | float64 | No | Aggregated confidence (0-100) |
+| `n_techniques_triggered` | int64 | No | Count of non-Normal techniques |
+| `top_signal` | string | Yes | Highest-risk signal in system |
+| `top_signal_score` | float64 | Yes | Score of top signal |
+| `top_technique` | string | Yes | Technique that found highest risk |
+| `explanation` | string | Yes | LLM-generated explanation |
+| `evaluation_timestamp` | datetime64[ns] | No | Assessment timestamp |
+| `baseline_version` | string | No | Baseline version used |
 
-**Contributing Signals Structure** (JSON):
+---
 
+### 10. Unit Health
+
+**Purpose**: Top-level fleet ranking and unit health prioritization.
+
+**Location**: `data/telemetry/golden/{client}/unit_health/year={YYYY}/week={WW}/`
+
+**File Pattern**: `unit_health.parquet`
+
+**Schema**:
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `unit` | string | No | Equipment identifier |
+| `overall_status` | string | No | "Normal", "Alerta", "Anormal", "InsufficientData" |
+| `priority_score` | float64 | No | Fleet ranking score (higher = more urgent) |
+| `unit_score` | float64 | No | Average system score (0-100) |
+| `n_anormal_systems` | int64 | No | Count of Anormal systems |
+| `n_alerta_systems` | int64 | No | Count of Alerta systems |
+| `top_risk_systems` | string | No | JSON array of top risk system names |
+| `executive_summary` | string | Yes | LLM-generated executive summary |
+| `evaluation_timestamp` | datetime64[ns] | No | Assessment timestamp |
+| `baseline_version` | string | No | Baseline version used |
+
+---
+
+### 11. Autoencoder Models (Artifacts)
+
+**Purpose**: Persisted trained LSTM autoencoder models and associated scalers.
+
+**Location**: `data/telemetry/golden/{client}/models/autoencoder/`
+
+**File Pattern**: `{unit}_{system}_{version}/`
+
+**Contents per model directory**:
+| File | Format | Description |
+|------|--------|-------------|
+| `model.keras` | Keras SavedModel | Trained LSTM autoencoder |
+| `scaler.pkl` | Pickle (joblib) | StandardScaler fitted on training data |
+| `metadata.json` | JSON | Training metadata |
+
+**metadata.json Schema**:
 ```json
 {
-  "top_3_signals": [
-    {
-      "signal_name": "EngCoolTemp",
-      "risk_score": 72.5,
-      "confidence": 94.0,
-      "contribution_weight": 0.45
-    },
-    {
-      "signal_name": "EngOilPres",
-      "risk_score": 65.3,
-      "confidence": 88.0,
-      "contribution_weight": 0.35
-    },
-    {
-      "signal_name": "EngSpd",
-      "risk_score": 42.1,
-      "confidence": 91.0,
-      "contribution_weight": 0.20
-    }
-  ]
-}
-```
-
-**Technique Results Used Structure** (JSON):
-
-```json
-{
-  "techniques": [
-    {
-      "technique": "threshold_deviation",
-      "results_count": 15,
-      "avg_risk": 68.2,
-      "max_risk": 82.5
-    },
-    {
-      "technique": "trend_analysis",
-      "results_count": 3,
-      "avg_risk": 55.7,
-      "max_risk": 65.3
-    },
-    {
-      "technique": "diagnostic_rules",
-      "results_count": 1,
-      "avg_risk": 78.0,
-      "max_risk": 78.0
-    }
-  ]
-}
-```
-
-**Example Record**:
-```json
-{
-  "assessment_id": "syshealth_w21_2026_cda042_engine",
-  "assessment_timestamp": "2026-05-25T06:00:00Z",
-  "assessment_window_start": "2026-05-19T00:00:00Z",
-  "assessment_window_end": "2026-05-25T23:59:59Z",
-  "unit_id": "CDA_UNIT_042",
-  "client": "CDA",
-  "equipment_model": "CAT 789D",
+  "unit": "T_09",
   "system": "Engine",
-  "system_risk_score": 68.5,
-  "system_confidence_score": 91.3,
-  "system_status": "Alerta",
-  "contributing_signals": { /* see above */ },
-  "technique_results_used": { /* see above */ },
-  "week_over_week_delta": 12.3,
-  "trend_direction": "degrading",
-  "schema_version": "1.0.0"
+  "model_version": "20260610",
+  "training_date": "2026-06-10T08:00:00Z",
+  "n_training_sequences": 4500,
+  "n_features": 18,
+  "sequence_length": 30,
+  "encoding_dim": 32,
+  "val_loss": 0.0023,
+  "baseline_mean": 0.0018,
+  "baseline_std": 0.0005,
+  "baseline_p95": 0.0031,
+  "baseline_p99": 0.0042,
+  "feature_columns": ["EngCoolTemp", "EngOilPres", "..."]
 }
 ```
 
 ---
 
-### 6.2 Unit Health
+## Data Flow Diagram
 
-**Location**: `data/telemetry/analytical_results/unit_health/`
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              CONFIGURATION                                   │
+│  signal_registry.yaml │ equipment_registry.yaml │ analysis_config.yaml       │
+└───────────┬───────────────────────┬────────────────────────┬────────────────┘
+            │                       │                        │
+            ▼                       ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         SILVER LAYER (INPUT)                                  │
+│                                                                              │
+│  Telemetry_Wide_With_States/    │    baselines/          │    limits/        │
+│  Week{WW}Year{YYYY}.parquet     │    baseline_{date}     │    limits_{date}  │
+│  [Unit|Fecha|Estado|signals...] │    .parquet            │    .parquet       │
+└───────────┬─────────────────────────────────┬──────────────────┬────────────┘
+            │                                 │
+            ▼                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      PROCESSING (src/ modules)                               │
+│                                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐  │
+│  │  Deviation  │  │    Event    │  │    Trend    │  │  Distribution    │  │
+│  │  Analysis   │──│   Analysis  │  │  Analysis   │  │    Shift         │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └───────┬──────────┘  │
+│         │                │                │                  │              │
+│         │      ┌─────────────────┐        │                  │              │
+│         └─────►│   Autoencoder   │◄───────┘──────────────────┘              │
+│                │   (uses normal  │                                           │
+│                │    labels)      │                                           │
+│                └────────┬────────┘                                           │
+│                         │                                                    │
+│                         ▼                                                    │
+│              ┌───────────────────┐                                           │
+│              │   Aggregation     │◄── All technique results                  │
+│              │  Signal→System→   │                                           │
+│              │      Unit         │                                           │
+│              └────────┬──────────┘                                           │
+│                       │                                                      │
+│                       ▼                                                      │
+│              ┌───────────────────┐                                           │
+│              │  LLM Explanation  │◄── OpenAI API (via .env API_KEY)          │
+│              └────────┬──────────┘                                           │
+└───────────────────────┼─────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         GOLDEN LAYER (OUTPUT)                                 │
+│                                                                              │
+│  technique_results/         │  ai_comments/      │  system_health/           │
+│  ├── deviation/             │  year=YYYY/        │  year=YYYY/               │
+│  ├── events/                │  week=WW/          │  week=WW/                 │
+│  ├── trend/                 │  ├── signal_       │                            │
+│  ├── distribution/          │  │   comments      │  unit_health/             │
+│  └── autoencoder/           │  ├── system_       │  year=YYYY/               │
+│                             │  │   comments      │  week=WW/                 │
+│                             │  └── unit_         │                            │
+│                             │      comments      │  models/autoencoder/      │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-**Partitioning**: `year={year}/week={week}/client={client}`
+---
 
-**Description**: Overall equipment health assessment with priority scoring
+## Schema Validation
 
-**Schema**:
+### Validation Functions
 
-| Field | Type | Nullable | Description |
-|-------|------|----------|-------------|
-| `assessment_id` | string | No | Unique assessment identifier |
-| `assessment_timestamp` | datetime64[ns] | No | When assessment was performed |
-| `assessment_window_start` | datetime64[ns] | No | Period start |
-| `assessment_window_end` | datetime64[ns] | No | Period end |
-| `unit_id` | string | No | Equipment identifier |
-| `client` | string | No | Client identifier |
-| `equipment_model` | string | No | Equipment model |
-| `unit_risk_score` | float64 | No | Overall risk (0-100) |
-| `unit_confidence_score` | float64 | No | Overall confidence (0-100) |
-| `unit_status` | string | No | "Normal", "Alerta", "Anormal", "InsufficientData" |
-| `priority_score` | float64 | No | Maintenance priority (0-100) |
-| `maintenance_urgency` | string | No | "immediate", "this_week", "this_month", "monitor" |
-| `fleet_percentile` | float64 | Yes | Percentile within fleet (0-100) |
-| `systems_affected` | JSON | No | System-level breakdown |
-| `top_risk_systems` | JSON | No | Top 3 systems by risk |
-| `diagnostic_rules_fired` | JSON | Yes | Rules triggered this period |
-| `week_over_week_delta` | float64 | Yes | Change from previous week |
-| `health_velocity` | float64 | Yes | Points/week change rate |
-| `explanation` | string | No | Natural language summary |
-| `schema_version` | string | No | Data contract version |
+All data entering or leaving the pipeline must be validated against its contract:
 
-**Systems Affected Structure** (JSON):
+```python
+from pydantic import BaseModel, Field
+from datetime import datetime, date
+from typing import Optional
 
-```json
-{
-  "systems": [
-    {
-      "system": "Engine",
-      "risk_score": 68.5,
-      "confidence": 91.3,
-      "status": "Alerta"
-    },
-    {
-      "system": "Transmission",
-      "risk_score": 42.1,
-      "confidence": 87.5,
-      "status": "Normal"
-    },
-    {
-      "system": "Brakes",
-      "risk_score": 55.3,
-      "confidence": 89.2,
-      "status": "Alerta"
-    },
-    {
-      "system": "Differential",
-      "risk_score": 28.7,
-      "confidence": 85.0,
-      "status": "Normal"
-    },
-    {
-      "system": "Hydraulics",
-      "risk_score": 35.2,
-      "confidence": 88.1,
-      "status": "Normal"
-    },
-    {
-      "system": "Electrical",
-      "risk_score": 22.5,
-      "confidence": 82.3,
-      "status": "Normal"
+class TelemetryInputSchema(BaseModel):
+    """Validates a row of Silver telemetry data."""
+    Unit: str
+    Fecha: datetime
+    Estado: str = Field(pattern=r'^(Operacional|Ralenti|Apagada|ND)$')
+
+
+class DeviationResultSchema(BaseModel):
+    """Validates a deviation analysis result row."""
+    unit: str
+    signal: str
+    system: str
+    state: str
+    model_specification: str
+    evaluation_date: date
+    risk_score: float = Field(ge=0, le=100)
+    confidence_score: float = Field(ge=0, le=100)
+    status: str = Field(pattern=r'^(Normal|Alerta|Anormal|InsufficientData)$')
+    abnormal_pct: float = Field(ge=0, le=100)
+    alert_pct: float = Field(ge=0, le=100)
+    critical_pct: float = Field(ge=0, le=100)
+    total_minutes_evaluated: int = Field(ge=0)
+    baseline_version: str
+    execution_timestamp: datetime
+
+
+class SystemHealthSchema(BaseModel):
+    """Validates a system health assessment row."""
+    unit: str
+    system: str
+    system_score: float = Field(ge=0, le=100)
+    system_status: str = Field(pattern=r'^(Normal|Alerta|Anormal|InsufficientData)$')
+    confidence: float = Field(ge=0, le=100)
+    n_techniques_triggered: int = Field(ge=0)
+    evaluation_timestamp: datetime
+    baseline_version: str
+    explanation: Optional[str] = None
+
+
+class UnitHealthSchema(BaseModel):
+    """Validates a unit health assessment row."""
+    unit: str
+    overall_status: str = Field(pattern=r'^(Normal|Alerta|Anormal|InsufficientData)$')
+    priority_score: float = Field(ge=0)
+    unit_score: float = Field(ge=0, le=100)
+    n_anormal_systems: int = Field(ge=0)
+    n_alerta_systems: int = Field(ge=0)
+    evaluation_timestamp: datetime
+    baseline_version: str
+    executive_summary: Optional[str] = None
+
+
+class SignalCommentSchema(BaseModel):
+    """Validates an AI signal-level comment row."""
+    unit: str
+    signal: str
+    system: str
+    status: str = Field(pattern=r'^(Alerta|Anormal|InsufficientData)$')
+    risk_score: float = Field(ge=0, le=100)
+    description: str = Field(min_length=1)
+    explaining: str = Field(min_length=0)
+    techniques_referenced: str  # JSON array
+    evaluation_timestamp: datetime
+    model_used: str
+
+
+class SystemCommentSchema(BaseModel):
+    """Validates an AI system-level comment row."""
+    unit: str
+    system: str
+    system_status: str = Field(pattern=r'^(Alerta|Anormal|InsufficientData)$')
+    system_score: float = Field(ge=0, le=100)
+    description: str = Field(min_length=1)
+    explaining: str = Field(min_length=0)
+    signals_referenced: str  # JSON array
+    recommended_action: Optional[str] = None
+    evaluation_timestamp: datetime
+    model_used: str
+
+
+class UnitCommentSchema(BaseModel):
+    """Validates an AI unit-level comment row."""
+    unit: str
+    overall_status: str = Field(pattern=r'^(Alerta|Anormal|InsufficientData)$')
+    priority_score: float = Field(ge=0)
+    description: str = Field(min_length=1)
+    explaining: str = Field(min_length=0)
+    systems_referenced: str  # JSON array
+    urgency: str = Field(pattern=r'^(routine|monitor|schedule_inspection|immediate)$')
+    recommended_action: Optional[str] = None
+    evaluation_timestamp: datetime
+    model_used: str
+```
+
+### Runtime Validation Pattern
+
+```python
+def validate_output(df: pd.DataFrame, schema_class: type, sample_size: int = 100) -> dict:
+    """
+    Validate DataFrame output against Pydantic schema.
+    
+    Parameters:
+        - df: DataFrame to validate
+        - schema_class: Pydantic model class for validation
+        - sample_size: Number of rows to validate (default: 100)
+        
+    Returns:
+        - dict: {'valid': bool, 'errors': list, 'rows_checked': int}
+    """
+    errors = []
+    sample = df.head(sample_size)
+    
+    for idx, row in sample.iterrows():
+        try:
+            schema_class(**row.to_dict())
+        except Exception as e:
+            errors.append({'row': idx, 'error': str(e)})
+    
+    return {
+        'valid': len(errors) == 0,
+        'errors': errors[:10],  # First 10 errors
+        'rows_checked': len(sample)
     }
-  ]
-}
-```
-
-**Top Risk Systems** (JSON):
-
-```json
-{
-  "top_3": [
-    {
-      "system": "Engine",
-      "risk_score": 68.5,
-      "primary_issue": "Elevated coolant temperature with degrading trend"
-    },
-    {
-      "system": "Brakes",
-      "risk_score": 55.3,
-      "primary_issue": "Front left brake temperature imbalance"
-    },
-    {
-      "system": "Transmission",
-      "risk_score": 42.1,
-      "primary_issue": "Lubrication temperature above normal range"
-    }
-  ]
-}
-```
-
-**Example Explanation**:
-```
-"Unit CDA_UNIT_042 shows elevated risk (score 62, Alerta status) driven by Engine system (score 68) with repeated coolant temperature exceedances (8.5% of operational time, 3 events >30min) and declining oil pressure trend (-0.8 kPa/week over 8 weeks). Brakes system also shows concern (score 55) with front left brake running 15°C hotter than other corners. Recommend inspection within this week."
-```
-
-**Example Record**:
-```json
-{
-  "assessment_id": "unithealth_w21_2026_cda042",
-  "assessment_timestamp": "2026-05-25T06:30:00Z",
-  "assessment_window_start": "2026-05-19T00:00:00Z",
-  "assessment_window_end": "2026-05-25T23:59:59Z",
-  "unit_id": "CDA_UNIT_042",
-  "client": "CDA",
-  "equipment_model": "CAT 789D",
-  "unit_risk_score": 62.3,
-  "unit_confidence_score": 89.7,
-  "unit_status": "Alerta",
-  "priority_score": 71.5,
-  "maintenance_urgency": "this_week",
-  "fleet_percentile": 87.5,
-  "systems_affected": { /* see above */ },
-  "top_risk_systems": { /* see above */ },
-  "diagnostic_rules_fired": {
-    "rules": [
-      {
-        "rule_id": "engine_overheating",
-        "rule_name": "Engine Overheating Pattern",
-        "severity": "high",
-        "first_fired": "2026-05-23T14:30:00Z"
-      }
-    ]
-  },
-  "week_over_week_delta": 10.2,
-  "health_velocity": -5.1,
-  "explanation": "Unit CDA_UNIT_042 shows elevated risk...",
-  "schema_version": "1.0.0"
-}
-```
-
-**Maintenance Urgency Classification**:
-
-| Urgency | Criteria |
-|---------|----------|
-| `immediate` | Unit status = Anormal AND critical system affected AND diagnostic rule fired |
-| `this_week` | Unit status = Anormal OR (Alerta AND health_velocity < -5) |
-| `this_month` | Unit status = Alerta AND health_velocity > -5 |
-| `monitor` | Unit status = Normal OR InsufficientData |
-
----
-
-### 6.3 Weekly Signal Aggregates
-
-**Location**: `data/telemetry/analytical_results/aggregates/weekly/`
-
-**Partitioning**: `year={year}/week={week}`
-
-**Description**: Weekly statistical summaries per signal per unit
-
-**Schema**:
-
-| Field | Type | Nullable | Description |
-|-------|------|----------|-------------|
-| `unit_id` | string | No | Equipment identifier |
-| `client` | string | No | Client identifier |
-| `equipment_model` | string | No | Equipment model |
-| `signal_name` | string | No | Signal identifier |
-| `system` | string | No | System classification |
-| `operational_state` | string | No | Operational state |
-| `year` | int64 | No | ISO year |
-| `week` | int64 | No | ISO week number |
-| `week_start` | datetime64[ns] | No | Week start (Monday) |
-| `week_end` | datetime64[ns] | No | Week end (Sunday) |
-| `mean` | float64 | Yes | Weekly mean |
-| `median` | float64 | Yes | Weekly median |
-| `std` | float64 | Yes | Standard deviation |
-| `p5` | float64 | Yes | 5th percentile |
-| `p50` | float64 | Yes | 50th percentile |
-| `p95` | float64 | Yes | 95th percentile |
-| `p99` | float64 | Yes | 99th percentile |
-| `min` | float64 | Yes | Minimum value |
-| `max` | float64 | Yes | Maximum value |
-| `hours_in_state` | float64 | No | Hours in this state |
-| `sample_count` | int64 | No | Valid samples |
-| `coverage_pct` | float64 | No | % of expected samples |
-| `abnormal_pct` | float64 | Yes | % time beyond thresholds |
-| `event_count` | int64 | Yes | Number of events |
-| `longest_event_minutes` | int64 | Yes | Longest event duration |
-| `schema_version` | string | No | Data contract version |
-
-**Example Record**:
-```json
-{
-  "unit_id": "CDA_UNIT_042",
-  "client": "CDA",
-  "equipment_model": "CAT 789D",
-  "signal_name": "EngCoolTemp",
-  "system": "Engine",
-  "operational_state": "Operacional",
-  "year": 2026,
-  "week": 21,
-  "week_start": "2026-05-19T00:00:00Z",
-  "week_end": "2026-05-25T23:59:59Z",
-  "mean": 85.3,
-  "median": 83.7,
-  "std": 9.2,
-  "p5": 70.5,
-  "p50": 83.7,
-  "p95": 98.2,
-  "p99": 104.1,
-  "min": 65.2,
-  "max": 108.3,
-  "hours_in_state": 87.5,
-  "sample_count": 5250,
-  "coverage_pct": 92.3,
-  "abnormal_pct": 8.5,
-  "event_count": 3,
-  "longest_event_minutes": 115,
-  "schema_version": "1.0.0"
-}
 ```
 
 ---
 
-## 7. Event Data Contracts
+## Versioning & Retention
 
-**Covered in Section 5.5 above** — See Event Detection Result schema
+### File Versioning
 
----
+| Data Type | Version Strategy | Example |
+|-----------|-----------------|---------|
+| Baselines | Date-stamped files | `baseline_20260225.parquet` |
+| Models | Directory with version | `T_09_Engine_20260610/` |
+| Results | Partitioned by time | `year=2026/week=22/` |
+| Config | YAML `version` field | `version: "1.2"` |
 
-## 8. Supporting Data Contracts
+### Retention Policy
 
-### 8.1 Fleet Summary
+| Output Type | Retention | Rationale |
+|-------------|-----------|-----------|
+| Technique results | 1 year | Sufficient for trend backtesting |
+| AI Comments | 2 years | Historical diagnostic tracking, paired with health |
+| System/Unit health | 2 years | Historical tracking and comparison |
+| Events | 1 year | Operational relevance window |
+| Baselines | All versions | Minimal storage, full auditability |
+| Models | Last 3 versions | Rollback capability |
+| LLM explanations | Stored with health outputs | Paired with assessments (legacy) |
 
-**Location**: `data/telemetry/analytical_results/fleet_summary/`
+### Backward Compatibility
 
-**Partitioning**: `year={year}/week={week}/client={client}`
-
-**Description**: Fleet-level statistics for benchmarking
-
-**Schema**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `client` | string | Client identifier |
-| `year` | int64 | ISO year |
-| `week` | int64 | ISO week number |
-| `total_units` | int64 | Units in fleet |
-| `units_evaluated` | int64 | Units with assessments |
-| `mean_unit_health` | float64 | Average unit risk score |
-| `median_unit_health` | float64 | Median unit risk score |
-| `std_unit_health` | float64 | Standard deviation |
-| `p25_unit_health` | float64 | 25th percentile |
-| `p75_unit_health` | float64 | 75th percentile |
-| `p90_unit_health` | float64 | 90th percentile |
-| `units_normal` | int64 | Units with Normal status |
-| `units_alerta` | int64 | Units with Alerta status |
-| `units_anormal` | int64 | Units with Anormal status |
-| `units_insufficient_data` | int64 | Units with InsufficientData |
-| `top_10_priority_units` | JSON | Highest priority units |
-| `systems_at_risk_count` | JSON | Systems showing elevated risk |
-| `schema_version` | string | Data contract version |
+All output parquet files include a `schema_version` metadata field. When schemas evolve:
+1. New columns are added as nullable (non-breaking)
+2. Renamed columns maintain both old and new for one version cycle
+3. Removed columns are documented in migration notes
+4. Reader code handles missing columns gracefully
 
 ---
 
-## 9. Schema Versioning
+## Environment Configuration
 
-### 9.1 Versioning Strategy
+### Required Environment Variables (`.env`)
 
-**Semantic Versioning**: `MAJOR.MINOR.PATCH`
+```env
+# OpenAI API Configuration
+OPENAI_API_KEY=sk-...
 
-- **MAJOR**: Breaking changes (field removed, type changed)
-- **MINOR**: Backward-compatible additions (new field)
-- **PATCH**: Non-functional changes (documentation, constraints)
+# Optional: Override model for LLM explanations
+OPENAI_MODEL=gpt-4o-mini
 
-**Current Version**: All schemas are at `1.0.0`
-
-### 9.2 Version Field
-
-All output schemas include `schema_version` field:
-```python
-"schema_version": "1.0.0"
-```
-
-### 9.3 Schema Evolution
-
-**Adding a field** (MINOR version bump):
-```python
-# v1.0.0
-{
-  "unit_id": "CDA_UNIT_042",
-  "risk_score": 72.5
-}
-
-# v1.1.0 (added confidence_score)
-{
-  "unit_id": "CDA_UNIT_042",
-  "risk_score": 72.5,
-  "confidence_score": 94.0,  # NEW
-  "schema_version": "1.1.0"
-}
-```
-
-**Changing a field type** (MAJOR version bump):
-```python
-# v1.0.0
-{
-  "event_count": 3  # int
-}
-
-# v2.0.0 (changed to float)
-{
-  "event_count": 3.0,  # BREAKING: now float
-  "schema_version": "2.0.0"
-}
+# Data paths (optional - defaults use relative paths)
+SILVER_DATA_PATH=data/telemetry/silver
+GOLDEN_DATA_PATH=data/telemetry/golden
+CONFIG_PATH=data/telemetry/config
 ```
 
 ---
-
-## 10. Data Quality Standards
-
-### 10.1 Input Data Quality Requirements
-
-| Metric | Threshold | Action if Failed |
-|--------|-----------|------------------|
-| Coverage per unit per day | ≥80% | Flag unit as InsufficientData |
-| Consecutive missing values | ≤10% | Log warning, continue |
-| Valid operational state | ≥90% | Filter invalid states |
-| Signal value in physical range | ≥95% | Filter out-of-range values |
-
-### 10.2 Output Data Quality Guarantees
-
-| Guarantee | Implementation |
-|-----------|----------------|
-| No null risk_score | All outputs have valid risk_score (0-100) or status=InsufficientData |
-| No null confidence_score | All outputs have valid confidence_score (0-100) |
-| Evidence always present | Evidence field is never null, may be empty JSON |
-| Schema version present | All outputs include schema_version field |
-| Timestamps in UTC | All datetime fields are UTC with timezone info |
-
-### 10.3 Data Retention Policies
-
-| Data Type | Retention Period | Rationale |
-|-----------|------------------|-----------|
-| Silver telemetry | Managed upstream | Input data |
-| Baselines | 12 months (keep last 12 versions) | Need history for comparison |
-| Technique results | 12 months | Sufficient for backtesting |
-| System health | 24 months | Long-term trends |
-| Unit health | 24 months | Long-term trends |
-| Events | 24 months | Historical event analysis |
-| Weekly aggregates | 24 months | Trend analysis requires long windows |
-
----
-
-## Appendix A: Example Data Flow
-
-**Input**: 1 day of Silver telemetry for CDA_UNIT_042, signal EngCoolTemp
-
-**Processing**:
-1. Load 24h window → 1440 minutes × 1 signal = 1440 records
-2. Retrieve baseline (P1=65.2, P99=102.5)
-3. Calculate exceedances → 2.3% beyond P99
-4. Generate TechniqueResult (risk_score=72.5)
-5. Aggregate to SystemHealth (Engine score=68.5)
-6. Aggregate to UnitHealth (unit score=62.3, priority=71.5)
-
-**Outputs**:
-- 1 TechniqueResult record → `technique_results/threshold_deviation/year=2026/month=05/day=23/`
-- 1 SystemHealth record → `system_health/year=2026/week=21/client=CDA/`
-- 1 UnitHealth record → `unit_health/year=2026/week=21/client=CDA/`
-- 3 Event records → `events/year=2026/month=05/day=23/`
-
----
-
-## Appendix B: Schema Change Log
-
-| Date | Schema | Version | Change | Type |
-|------|--------|---------|--------|------|
-| 2026-05-24 | All | 1.0.0 | Initial schema definitions | Initial |
-
----
-
-**Document Control**
-
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0.0 | 2026-05-24 | Senior Data Scientist | Initial data contracts documentation |
-
----
-
-**Related Documents**
-- [Implementation Plan](implementation_plan.md)
-- [Project Overview](project_overview.md)
-- [Implementation Guidelines](implementation_guidelines.md)
-- Phase Implementation Guides (1-5)
